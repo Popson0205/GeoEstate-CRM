@@ -1,4 +1,5 @@
-import type { Account, AccountDetail, Activity, AuditEntry, Contact, Deal, Home, Session, StaffBrief, StaffMember, Step, User } from "./types";
+import type { Account, AccountDetail, Activity, AuditEntry, Company, Contact, Deal, GeohubOrg, GeohubRequest, Home, Invoice, InvoiceDetail, InvoiceDraft,
+  LicencePlan, Price, Session, StaffBrief, StaffMember, Step, User } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public fields?: Record<string, string>, public code?: string) { super(message); }
@@ -30,6 +31,16 @@ async function refresh(): Promise<boolean> {
     } catch { return false; } finally { setTimeout(() => { refreshing = null; }, 0); }
   })();
   return refreshing;
+}
+
+/** A file from the API (an invoice PDF), signed in. */
+export async function blob(path: string, retry = true): Promise<Blob> {
+  const at = store.get(ACCESS);
+  const res = await fetch(BASE + path, { headers: at ? { Authorization: `Bearer ${at}` } : {} }).catch(() => null);
+  if (!res) throw new ApiError(0, "Can't reach the CRM. Check your connection.");
+  if (res.status === 401 && retry && at && await refresh()) return blob(path, false);
+  if (!res.ok) throw new ApiError(res.status, "The file could not be made.");
+  return res.blob();
 }
 
 export async function req<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
@@ -107,4 +118,30 @@ export const api = {
   updateActivity: (id: string, b: { subject?: string; body?: string; due_at?: string | null; clear_due?: boolean; done?: boolean; owner_id?: string }) => req<Activity>("PATCH", `/activities/${id}`, b),
   deleteActivity: (id: string) => req<void>("DELETE", `/activities/${id}`),
   audit: (before?: number) => req<AuditEntry[]>("GET", `/audit${q({ before })}`),
+  // invoices
+  company: () => req<Company>("GET", "/company"),
+  prices: () => req<Price[]>("GET", "/prices"),
+  setPrice: (plan: LicencePlan, amount_ngn: string) => req<Price>("PUT", `/prices/${plan}`, { amount_ngn }),
+  invoices: (f: { status?: string; account_id?: string; q?: string } = {}) => req<Invoice[]>("GET", `/invoices${q(f)}`),
+  invoice: (id: string) => req<InvoiceDetail>("GET", `/invoices/${id}`),
+  createInvoice: (b: InvoiceDraft) => req<InvoiceDetail>("POST", "/invoices", b),
+  updateInvoice: (id: string, b: Partial<InvoiceDraft> & { clear_licence?: boolean }) => req<InvoiceDetail>("PATCH", `/invoices/${id}`, b),
+  deleteInvoice: (id: string) => req<void>("DELETE", `/invoices/${id}`),
+  issueInvoice: (id: string, b: { issue_date?: string; due_date?: string } = {}) => req<InvoiceDetail>("POST", `/invoices/${id}/issue`, b),
+  emailInvoice: (id: string, b: { to?: string; message?: string }) => req<InvoiceDetail>("POST", `/invoices/${id}/email`, b),
+  voidInvoice: (id: string, reason: string) => req<InvoiceDetail>("POST", `/invoices/${id}/void`, { reason }),
+  invoicePdf: (id: string) => blob(`/invoices/${id}/pdf`),
+  addPayment: (id: string, b: { amount_ngn: string; paid_on: string; method: string; reference: string; note: string; lift_suspension: boolean }) =>
+    req<InvoiceDetail>("POST", `/invoices/${id}/payments`, b),
+  deletePayment: (id: string) => req<InvoiceDetail>("DELETE", `/payments/${id}`),
+  retryLicence: (id: string, lift_suspension = false) => req<InvoiceDetail>("POST", `/invoices/${id}/licence${q({ lift_suspension })}`),
+  // Geohub
+  geohub: () => req<{ linked: boolean; url: string }>("GET", "/geohub"),
+  geohubOrgs: (query?: string) => req<GeohubOrg[]>("GET", `/geohub/orgs${q({ q: query })}`),
+  geohubRequests: (status?: string) => req<GeohubRequest[]>("GET", `/geohub/requests${q({ status })}`),
+  geohubImport: (b: { org_ids?: string[]; request_ids?: string[] }) => req<{ added: number; skipped: number; accounts: string[] }>("POST", "/geohub/import", b),
+  accountGeohub: (id: string) => req<{ org: GeohubOrg | null; error: string | null }>("GET", `/accounts/${id}/geohub`),
+  linkGeohub: (id: string, org_id: string) => req<{ org: GeohubOrg | null }>("PUT", `/accounts/${id}/geohub`, { org_id }),
+  unlinkGeohub: (id: string) => req<void>("DELETE", `/accounts/${id}/geohub`),
+  setupGeohub: (id: string, b: { kind: "paid" | "demo"; contact_id: string; invoice_id?: string }) => req<{ org: GeohubOrg | null }>("POST", `/accounts/${id}/geohub/setup`, b),
 };

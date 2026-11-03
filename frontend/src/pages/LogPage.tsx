@@ -14,12 +14,22 @@ const WORDS: Record<string, string> = {
   "staff.reset_mfa": "reset someone's two-step sign-in", "auth.password_set": "chose a password", "auth.password_change": "changed their password",
   "auth.mfa_enrolled": "set up two-step sign-in", "auth.mfa_failed": "entered a wrong two-step code", "auth.recovery_code_used": "used a recovery code",
   "auth.recovery_codes": "made new recovery codes",
+  "invoice.create": "started an invoice", "invoice.delete": "deleted a draft invoice", "invoice.issue": "issued invoice",
+  "invoice.email": "emailed invoice", "invoice.void": "voided invoice", "invoice.licence": "switched on the licence for invoice",
+  "payment.record": "recorded a payment on", "payment.delete": "removed a payment from", "price.update": "changed the price of",
+  "geohub.import": "brought clients in from Geohub", "geohub.link": "linked a client to Geohub", "geohub.unlink": "unlinked a client from Geohub",
+  "geohub.setup": "set up a client on Geohub",
 };
+const N = new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 2 });
 /** An entry in plain words: "Funke Ola moved a deal: Advanced, from Proposal to Won". */
 export function describe(e: AuditEntry): string {
   const d = e.details as Record<string, string>;
   const what = WORDS[e.action] ?? e.action.replace(/[._]/g, " ");
-  const name = d.title || d.name || d.subject || d.email;
+  if (e.action.startsWith("payment.")) return `${what} ${d.number}: ${N.format(Number(d.amount))}${d.reference ? ` (${d.reference})` : ""}`;
+  if (e.action === "price.update") return `${what} ${d.plan}: ${N.format(Number(d.before))} to ${N.format(Number(d.after))}`;
+  if (e.action === "geohub.import") return `${what}: ${d.added} added`;
+  if (e.action.startsWith("invoice.") && d.number) return `${what} ${d.number}${d.to ? ` to ${d.to}` : ""}${d.account ? `: ${d.account}` : ""}${d.reason ? ` (${d.reason})` : ""}`;
+  const name = d.title || d.name || d.subject || d.email || d.org;
   const move = d.from && d.to ? `, from ${d.from} to ${d.to}` : "";
   return `${what}${name ? `: ${name}` : ""}${move}`;
 }

@@ -27,12 +27,33 @@ class Settings(BaseSettings):
     mail_from: str = "GeoEstate CRM <no-reply@geoestate.ng>"
     mail_reply_to: str = ""
 
+    # Printed on every invoice. Change them here (as variables) if they ever change.
+    company_name: str = "GeoEstate NIG Limited"
+    company_address: str = "1, Agonbako Street, behind Community Secondary School, Kabusa, FCT, Nigeria"
+    company_rc: str = "9631300"
+    company_tin: str = "2623706767701"
+    company_email: str = "geoestate.ng@gmail.com"
+    company_phone: str = ""
+    bank_name: str = "Guaranty Trust Bank (GTB)"
+    bank_account_name: str = "GEOESTATE NIG LIMITED"
+    bank_account_number: str = "3005285279"
+    vat_rate: float = 7.5                      # percent, for new invoices
+    invoice_due_days: int = 14                 # days to pay, from the issue date
+    invoice_prefix: str = "GE"                 # invoice numbers: GE-2026-0001
+
+    # The link to Geohub: its address, and the key that must equal CRM_LINK_KEY there. Empty = not linked.
+    geohub_url: str = ""
+    geohub_api_prefix: str = "/api"
+    geohub_link_key: str = ""
+
     rate_limit_enabled: bool = True
     log_level: str = "INFO"
 
     @model_validator(mode="after")
     def _checks(self):
         self.app_url = self.app_url.strip().rstrip("/")
+        self.geohub_url = self.geohub_url.strip().rstrip("/")
+        self.geohub_link_key = self.geohub_link_key.strip()
         if not self.db_schema.isidentifier() or self.db_schema.lower() == "public":
             raise ValueError("DB_SCHEMA must be a plain name other than public, e.g. crm")
         if self.env == "prod" and (len(self.jwt_secret) < 32 or self.jwt_secret.startswith("change-me")):

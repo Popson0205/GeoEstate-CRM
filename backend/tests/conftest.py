@@ -19,13 +19,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import bootstrap, mfa, ratelimit  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
-from app.routers import auth, staff  # noqa: E402
+from app.routers import auth, invoices, staff  # noqa: E402
 
 OUTBOX: list[dict] = []
 
 
-async def _fake_send(to, subject, body, *, action=None):
-    OUTBOX.append({"to": to, "subject": subject, "body": body, "action": action})
+async def _fake_send(to, subject, body, *, action=None, attachments=None):
+    OUTBOX.append({"to": to, "subject": subject, "body": body, "action": action, "attachments": attachments or []})
     return True
 
 
@@ -48,7 +48,7 @@ def code(secret: str) -> str:
 
 @pytest.fixture(scope="session")
 def client():
-    for m in (bootstrap, auth, staff):
+    for m in (bootstrap, auth, staff, invoices):
         m.send_email = _fake_send
     mfa.clock = CLOCK
     import psycopg
@@ -96,6 +96,7 @@ class Staff:
     def get(self, url, **kw): return self.c.get(url, headers=self.h, **kw)
     def post(self, url, **kw): return self.c.post(url, headers=self.h, **kw)
     def patch(self, url, **kw): return self.c.patch(url, headers=self.h, **kw)
+    def put(self, url, **kw): return self.c.put(url, headers=self.h, **kw)
     def delete(self, url, **kw): return self.c.delete(url, headers=self.h, **kw)
 
 

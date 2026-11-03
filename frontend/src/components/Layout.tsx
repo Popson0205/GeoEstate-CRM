@@ -8,6 +8,7 @@ export default function Layout() {
   const [open, setOpen] = useState(false);
   const links: [string, string, boolean][] = [
     ["/", "Home", true], ["/clients", "Clients", true], ["/deals", "Deals", true], ["/tasks", "Tasks", true],
+    ["/invoices", "Invoices", true], ["/geohub", "Geohub", true],
     ["/staff", "Staff", true], ["/log", "Activity log", can("audit.view")],
   ];
   return (

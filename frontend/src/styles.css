@@ -44,7 +44,7 @@ input[type="checkbox"], input[type="radio"] { width: auto; min-height: 0; accent
 .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .head h1, .head h2 { margin: 0; }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-.two .card { margin-bottom: 0; } .two + .card, .two + section { margin-top: 18px; }
+.two .card { margin-bottom: 0; } .two + .card, .two + section, .two + .two { margin-top: 18px; }
 .badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--navy-50); color: var(--navy); margin-left: 6px; vertical-align: 2px; }
 .badge.ok, .badge.s-customer, .badge.st-won { background: var(--green-50); color: #1f6b24; }
 .badge.warn, .badge.st-proposal { background: var(--warn-50); color: var(--warn); }
@@ -136,3 +136,27 @@ input[type="checkbox"], input[type="radio"] { width: auto; min-height: 0; accent
 .deal select { margin-top: 6px; min-height: 32px; padding: 4px 6px; font-size: 13px; }
 @media (max-width: 800px) { .board { grid-template-columns: repeat(6, 78vw); } .log li { grid-template-columns: 1fr; gap: 0; } }
 .stack h1 { margin: 0; }
+
+/* invoices */
+.r { text-align: right; } .table th.r { text-align: right; }
+.badge.bad { background: var(--bad-50); color: var(--bad); }
+.ok-text { color: #1f6b24; font-weight: 600; }
+.lines { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.line { display: grid; grid-template-columns: minmax(0, 1fr) 80px 150px 130px auto; gap: 8px; align-items: start; }
+.line > .num { padding-top: 9px; font-variant-numeric: tabular-nums; }
+.line textarea { min-height: 40px; }
+.line-head { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.totals { display: grid; grid-template-columns: max-content 140px; gap: 4px 18px; justify-content: end; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+.totals dt { color: var(--muted); text-align: right; } .totals dd { margin: 0; text-align: right; }
+.invoice-grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(0, 1.15fr); gap: 18px; align-items: start; max-width: 1400px; }
+.pdf-card { padding: 0; overflow: hidden; position: sticky; top: 12px; }
+.pdf-open { display: none; }
+.pdf { display: block; width: 100%; height: min(86vh, 1100px); border: 0; background: #e9ecf2; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 360px; }
+.steps-list { padding-left: 1.3em; display: flex; flex-direction: column; gap: 8px; }
+.seg label input:disabled + * { opacity: .5; }
+@media (max-width: 1000px) { .invoice-grid { grid-template-columns: 1fr; } .pdf-card { display: none; } .pdf-open { display: inline-flex; } }
+@media (max-width: 700px) {
+  .line { grid-template-columns: 1fr 1fr; } .line > .field:first-child { grid-column: 1 / -1; } .line-head { display: none; }
+  .line > .num { padding-top: 0; }
+}

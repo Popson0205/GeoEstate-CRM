@@ -10,6 +10,7 @@ from ..errors import Problem
 from ..schemas import AccountDetail, AccountIn, AccountOut, AccountPatch, ContactIn, ContactOut, ContactPatch
 from .activities import ACTIVITY_SQL
 from .deals import DEAL_SQL
+from .invoices import INVOICE_SQL, _shape
 
 router = APIRouter(tags=["accounts"])
 
@@ -77,7 +78,11 @@ async def get_account(account_id: UUID, user=Depends(current_user), conn=Depends
     cur = await conn.execute(ACTIVITY_SQL + "WHERE x.account_id = %s OR x.deal_id IN (SELECT id FROM deals WHERE account_id = %s) "
                              "ORDER BY (x.done_at IS NULL AND x.kind = 'task') DESC, COALESCE(x.done_at, x.due_at, x.created_at) DESC LIMIT 200",
                              (account_id, account_id))
-    return {**a, "contacts": contacts, "deals": deals, "activities": await cur.fetchall()}
+    activities = await cur.fetchall()
+    cur = await conn.execute(INVOICE_SQL + "WHERE i.account_id = %s ORDER BY (i.status = 'draft') DESC, i.issue_date DESC NULLS LAST, "
+                             "i.created_at DESC", (account_id,))
+    invoices = [_shape(r) for r in await cur.fetchall()]
+    return {**a, "contacts": contacts, "deals": deals, "activities": activities, "invoices": invoices}
 
 
 @router.patch("/accounts/{account_id}", response_model=AccountOut)
@@ -97,6 +102,11 @@ async def update_account(account_id: UUID, body: AccountPatch, user=Depends(requ
 @router.delete("/accounts/{account_id}", status_code=204, summary="Delete a client with its contacts, deals and activity (super admins)")
 async def delete_account(account_id: UUID, user=Depends(require("records.delete")), conn=Depends(get_conn)):
     a = await _account(conn, account_id)
+    cur = await conn.execute("SELECT count(*) AS n FROM invoices WHERE account_id = %s AND status <> 'draft'", (account_id,))
+    if (await cur.fetchone())["n"]:
+        raise Problem(409, "This client has issued invoices, which are kept for the records. Mark it as a former client instead.",
+                      code="has_invoices")
+    await conn.execute("DELETE FROM invoices WHERE account_id = %s", (account_id,))
     await conn.execute("DELETE FROM accounts WHERE id = %s", (account_id,))
     await audit(conn, "account.delete", actor_id=user["id"], target_type="account", target_id=account_id, name=a["name"])
     return Response(status_code=204)
