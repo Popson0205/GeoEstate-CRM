@@ -16,7 +16,7 @@ const WORDS: Record<string, string> = {
   "auth.recovery_codes": "made new recovery codes",
   "invoice.create": "started an invoice", "invoice.delete": "deleted a draft invoice", "invoice.issue": "issued invoice",
   "invoice.email": "emailed invoice", "invoice.void": "voided invoice", "invoice.licence": "switched on the licence for invoice",
-  "payment.record": "recorded a payment on", "payment.delete": "removed a payment from", "price.update": "changed the price of",
+  "payment.record": "recorded a payment on", "payment.delete": "removed a payment from", "price.update": "changed the price of", "price.delete": "removed the price of",
   "geohub.import": "brought clients in from Geohub", "geohub.link": "linked a client to Geohub", "geohub.unlink": "unlinked a client from Geohub",
   "geohub.setup": "set up a client on Geohub",
 };
@@ -26,7 +26,7 @@ export function describe(e: AuditEntry): string {
   const d = e.details as Record<string, string>;
   const what = WORDS[e.action] ?? e.action.replace(/[._]/g, " ");
   if (e.action.startsWith("payment.")) return `${what} ${d.number}: ${N.format(Number(d.amount))}${d.reference ? ` (${d.reference})` : ""}`;
-  if (e.action === "price.update") return `${what} ${d.plan}: ${N.format(Number(d.before))} to ${N.format(Number(d.after))}`;
+  if (e.action.startsWith("price.")) return e.action === "price.delete" ? `${what} ${d.plan}` : d.before == null ? `set the price of ${d.plan}: ${N.format(Number(d.after))}` : `${what} ${d.plan}: ${N.format(Number(d.before))} to ${N.format(Number(d.after))}`;
   if (e.action === "geohub.import") return `${what}: ${d.added} added`;
   if (e.action.startsWith("invoice.") && d.number) return `${what} ${d.number}${d.to ? ` to ${d.to}` : ""}${d.account ? `: ${d.account}` : ""}${d.reason ? ` (${d.reason})` : ""}`;
   const name = d.title || d.name || d.subject || d.email || d.org;

@@ -15,7 +15,7 @@ from ..db import get_conn
 from ..deps import current_user, require
 from ..errors import Problem
 from ..mailer import send_email
-from ..schemas import (CompanyOut, EmailInvoiceIn, InvoiceDetail, InvoiceIn, InvoiceOut, InvoicePatch, IssueIn, PaymentIn,
+from ..schemas import (CompanyOut, LicencePlan, Product, EmailInvoiceIn, InvoiceDetail, InvoiceIn, InvoiceOut, InvoicePatch, IssueIn, PaymentIn,
                        PaymentOut, PriceIn, PriceOut, VoidIn)
 
 router = APIRouter(tags=["invoices"])
@@ -97,26 +97,39 @@ async def company(user=Depends(current_user)):
             "vat_rate": s.vat_rate, "due_days": s.invoice_due_days}
 
 
-@router.get("/prices", response_model=list[PriceOut], summary="What a year of each plan costs, before VAT")
+PRICE_SQL = "SELECT p.*, u.name AS updated_by_name FROM prices p LEFT JOIN users u ON u.id = p.updated_by "
+PRODUCT_ORDER = "array_position(ARRAY['hub','land','check','farm'], p.product), array_position(ARRAY['standard','advanced','custom'], p.plan)"
+
+
+@router.get("/prices", response_model=list[PriceOut], summary="What a year of each product's plans costs, before VAT")
 async def prices(user=Depends(current_user), conn=Depends(get_conn)):
-    cur = await conn.execute("SELECT p.*, u.name AS updated_by_name FROM prices p LEFT JOIN users u ON u.id = p.updated_by "
-                             "ORDER BY p.amount_ngn")
+    cur = await conn.execute(PRICE_SQL + "ORDER BY " + PRODUCT_ORDER)
     return await cur.fetchall()
 
 
-@router.put("/prices/{plan}", response_model=PriceOut, summary="Change a plan's yearly price (super admins)")
-async def set_price(plan: str, body: PriceIn, user=Depends(require("prices.edit")), conn=Depends(get_conn)):
-    cur = await conn.execute("SELECT amount_ngn FROM prices WHERE plan = %s", (plan,))
+@router.put("/prices/{product}/{plan}", response_model=PriceOut, summary="Set a product plan's yearly price (super admins)")
+async def set_price(product: Product, plan: LicencePlan, body: PriceIn, user=Depends(require("prices.edit")), conn=Depends(get_conn)):
+    cur = await conn.execute("SELECT amount_ngn FROM prices WHERE product = %s AND plan = %s", (product, plan))
+    old = await cur.fetchone()
+    await conn.execute(
+        "INSERT INTO prices (product, plan, name, amount_ngn, updated_by) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (product, plan) DO UPDATE SET amount_ngn = EXCLUDED.amount_ngn, updated_by = EXCLUDED.updated_by, updated_at = now()",
+        (product, plan, invoicing.plan_name(product, plan), body.amount_ngn, user["id"]))
+    await audit(conn, "price.update", actor_id=user["id"], target_type="price", target_id=f"{product}/{plan}",
+                plan=invoicing.plan_name(product, plan), before=str(old["amount_ngn"]) if old else None, after=str(body.amount_ngn))
+    cur = await conn.execute(PRICE_SQL + "WHERE p.product = %s AND p.plan = %s", (product, plan))
+    return await cur.fetchone()
+
+
+@router.delete("/prices/{product}/{plan}", status_code=204, summary="Remove a price (super admins)")
+async def delete_price(product: Product, plan: LicencePlan, user=Depends(require("prices.edit")), conn=Depends(get_conn)):
+    cur = await conn.execute("DELETE FROM prices WHERE product = %s AND plan = %s RETURNING amount_ngn", (product, plan))
     old = await cur.fetchone()
     if not old:
-        raise Problem(404, "No such plan.", code="not_found")
-    await conn.execute("UPDATE prices SET amount_ngn = %s, updated_by = %s, updated_at = now() WHERE plan = %s",
-                       (body.amount_ngn, user["id"], plan))
-    await audit(conn, "price.update", actor_id=user["id"], target_type="price", target_id=plan,
-                plan=plan, before=str(old["amount_ngn"]), after=str(body.amount_ngn))
-    cur = await conn.execute("SELECT p.*, u.name AS updated_by_name FROM prices p LEFT JOIN users u ON u.id = p.updated_by "
-                             "WHERE p.plan = %s", (plan,))
-    return await cur.fetchone()
+        raise Problem(404, "No such price.", code="not_found")
+    await audit(conn, "price.delete", actor_id=user["id"], target_type="price", target_id=f"{product}/{plan}",
+                plan=invoicing.plan_name(product, plan), before=str(old["amount_ngn"]))
+    return Response(status_code=204)
 
 
 # ---------- invoices ----------
@@ -149,9 +162,9 @@ async def create_invoice(body: InvoiceIn, user=Depends(require("invoices.edit"))
     await _deal_ok(conn, body.deal_id, body.account_id)
     _licence_ok(body.licence_plan, body.licence_starts, body.licence_ends)
     cur = await conn.execute(
-        "INSERT INTO invoices (account_id, deal_id, vat_rate, notes, licence_plan, licence_starts, licence_ends, created_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (body.account_id, body.deal_id, settings.vat_rate, body.notes.strip(), body.licence_plan,
+        "INSERT INTO invoices (account_id, deal_id, vat_rate, notes, licence_product, licence_plan, licence_starts, licence_ends, created_by) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (body.account_id, body.deal_id, settings.vat_rate, body.notes.strip(), body.licence_product, body.licence_plan,
          body.licence_starts if body.licence_plan else None, body.licence_ends if body.licence_plan else None, user["id"]))
     iid = (await cur.fetchone())["id"]
     await _write_lines(conn, iid, [l.model_dump() for l in body.lines], settings.vat_rate)
@@ -177,8 +190,10 @@ async def update_invoice(invoice_id: UUID, body: InvoicePatch, user=Depends(requ
     if body.clear_licence:
         await conn.execute("UPDATE invoices SET licence_plan = NULL, licence_starts = NULL, licence_ends = NULL WHERE id = %s",
                            (invoice_id,))
-    elif {"licence_plan", "licence_starts", "licence_ends"} & set(data):
+    elif {"licence_product", "licence_plan", "licence_starts", "licence_ends"} & set(data):
         plan = data.get("licence_plan", inv["licence_plan"])
+        product = data.get("licence_product") or inv["licence_product"]
+        await conn.execute("UPDATE invoices SET licence_product = %s WHERE id = %s", (product, invoice_id))
         starts, ends = data.get("licence_starts", inv["licence_starts"]), data.get("licence_ends", inv["licence_ends"])
         _licence_ok(plan, starts, ends)
         await conn.execute("UPDATE invoices SET licence_plan = %s, licence_starts = %s, licence_ends = %s WHERE id = %s",

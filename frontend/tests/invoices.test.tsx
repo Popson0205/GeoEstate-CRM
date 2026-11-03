@@ -39,11 +39,13 @@ it("a renewal invoice fills in the licence line and its dates from Geohub", asyn
   const routes: Record<string, (b?: any) => unknown> = {
     "/me": () => ({ id: "u1", email: "f@geoestate.example", name: "Funke Ola", role: "account_manager", role_name: "Account manager", perms: ["invoices.edit"], mfa_enabled: true }),
     "/accounts": () => [{ id: "a1", name: "Kano Agency" }],
-    "/prices": () => [{ plan: "standard", name: "Organization Standard", amount_ngn: "750000.00" }, { plan: "advanced", name: "Organization Advanced", amount_ngn: "1500000.00" }],
+    "/prices": () => [{ product: "hub", plan: "standard", name: "Organization Standard", amount_ngn: "750000.00" }, { product: "hub", plan: "advanced", name: "Organization Advanced", amount_ngn: "1500000.00" },
+      { product: "farm", plan: "standard", name: "FarmScan Standard", amount_ngn: "400000.00" }],
     "/company": () => ({ vat_rate: 7.5 }),
     "/accounts/a1": () => ({ id: "a1", name: "Kano Agency", geohub_org_id: "o1", email: "", deals: [{ id: "d1", title: "Renewal 2027" }],
       contacts: [{ id: "c1", name: "Ada Obi", email: "ada@kano.example" }], invoices: [] }),
-    "/accounts/a1/geohub": () => ({ org: { plan_name: "Organization Standard", status_name: "Active", subscription_ends: "2027-01-31" }, error: null }),
+    "/accounts/a1/geohub": () => ({ org: { plan_name: "Organization Standard", status_name: "Active", subscription_ends: "2027-01-31",
+      products: [{ product: "farm", plan: "standard", plan_name: "FarmScan Standard", status: "active", status_name: "Active", subscription_ends: "2026-12-14" }] }, error: null }),
     "/invoices": (b) => { sent.push(b); return { id: "i1" }; },
   };
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -57,6 +59,7 @@ it("a renewal invoice fills in the licence line and its dates from Geohub", asyn
   </Routes></ToastProvider></AuthProvider></MemoryRouter>);
 
   expect(await screen.findByText(/Kano Agency is on Organization Standard \(active\) until 31 January 2027/)).toBeTruthy();
+  expect((screen.getByLabelText("Product") as HTMLSelectElement).value).toBe("hub");
   fireEvent.click(screen.getByRole("radio", { name: /Organization Standard/ }));
   const line = screen.getByLabelText("Line 1 description") as HTMLTextAreaElement;
   expect(line.value).toBe("Geohub Organization Standard licence, one year (1 February 2027 to 31 January 2028)");
@@ -78,7 +81,39 @@ it("a renewal invoice fills in the licence line and its dates from Geohub", asyn
   fireEvent.change(screen.getByLabelText("Deal (optional)"), { target: { value: "d1" } });
   fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
   await waitFor(() => expect(screen.getByText("The invoice")).toBeTruthy());
-  expect(sent[0]).toEqual({ account_id: "a1", deal_id: "d1", notes: "", licence_plan: "advanced", licence_starts: "2027-03-01", licence_ends: "2028-02-29",
+  expect(sent[0]).toEqual({ account_id: "a1", deal_id: "d1", notes: "", licence_product: "hub", licence_plan: "advanced", licence_starts: "2027-03-01", licence_ends: "2028-02-29",
     lines: [{ description: "Geohub Organization Advanced licence, one year (1 March 2027 to 29 February 2028)", quantity: "1", unit_price_ngn: "1500000" },
       { description: "Training day", quantity: "1", unit_price_ngn: "50000" }] });
+});
+
+it("an invoice for another product prices and dates its own licence", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const path = url.replace(/^\/api/, "").replace(/\?.*$/, "");
+    const routes: Record<string, unknown> = {
+      "/me": { id: "u1", email: "f@g.example", name: "Funke Ola", role: "account_manager", role_name: "Account manager", perms: ["invoices.edit"], mfa_enabled: true },
+      "/accounts": [{ id: "a1", name: "Kano Agency" }],
+      "/prices": [{ product: "hub", plan: "standard", name: "Organization Standard", amount_ngn: "750000.00" }, { product: "farm", plan: "standard", name: "FarmScan Standard", amount_ngn: "400000.00" }],
+      "/company": { vat_rate: 7.5 },
+      "/accounts/a1": { id: "a1", name: "Kano Agency", geohub_org_id: "o1", email: "", deals: [], contacts: [], invoices: [] },
+      "/accounts/a1/geohub": { org: { plan_name: "Organization Standard", status_name: "Active", subscription_ends: "2027-01-31",
+        products: [{ product: "farm", plan: "standard", plan_name: "FarmScan Standard", status: "active", status_name: "Active", subscription_ends: "2026-12-14" }] }, error: null },
+    };
+    const body = routes[path];
+    return new Response(JSON.stringify(body ?? { detail: "Not found" }), { status: body ? 200 : 404, headers: { "Content-Type": "application/json" } });
+  }));
+  localStorage.setItem("crm.access", "token");
+  render(<MemoryRouter initialEntries={["/invoices/new?client=a1"]}><AuthProvider><ToastProvider><Routes>
+    <Route path="/invoices/new" element={<InvoiceEditPage />} /></Routes></ToastProvider></AuthProvider></MemoryRouter>);
+  await screen.findByText(/Kano Agency is on Organization Standard/);
+  fireEvent.change(screen.getByLabelText("Product"), { target: { value: "farm" } });
+  expect(await screen.findByText(/Kano Agency is on FarmScan Standard \(active\) until 14 December 2026/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /FarmScan Standard/ }));
+  expect((screen.getByLabelText("Line 1 description") as HTMLTextAreaElement).value).toBe("FarmScan Standard licence, one year (15 December 2026 to 14 December 2027)");
+  expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("400000");
+  fireEvent.click(screen.getByRole("radio", { name: /FarmScan Advanced/ }));
+  expect(screen.getByText(/No price is set for FarmScan Advanced/)).toBeTruthy();
+  expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("");
+  fireEvent.change(screen.getByLabelText("Product"), { target: { value: "land" } });
+  expect(await screen.findByText(/does not have Land Registry yet/)).toBeTruthy();
+  expect((screen.getByLabelText("Line 1 description") as HTMLTextAreaElement).value).toMatch(/^Land Registry Advanced licence, one year/);
 });

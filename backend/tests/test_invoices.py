@@ -52,10 +52,15 @@ def test_prices(client, boss, hire):
     am = hire("account_manager")
     p = {x["plan"]: x for x in am.get("/prices").json()}
     assert float(p["standard"]["amount_ngn"]) == 750000 and float(p["advanced"]["amount_ngn"]) == 1500000
-    assert am.put("/prices/standard", json={"amount_ngn": 800000}).status_code == 403
-    assert float(boss.put("/prices/standard", json={"amount_ngn": 800000}).json()["amount_ngn"]) == 800000
-    boss.put("/prices/standard", json={"amount_ngn": 750000})
-    assert boss.put("/prices/gold", json={"amount_ngn": 1}).status_code == 404
+    assert am.put("/prices/hub/standard", json={"amount_ngn": 800000}).status_code == 403
+    assert float(boss.put("/prices/hub/standard", json={"amount_ngn": 800000}).json()["amount_ngn"]) == 800000
+    boss.put("/prices/hub/standard", json={"amount_ngn": 750000})
+    assert boss.put("/prices/gold/standard", json={"amount_ngn": 1}).status_code == 422
+    # other products get their own prices
+    land = boss.put("/prices/land/standard", json={"amount_ngn": 2500000}).json()
+    assert land["product"] == "land" and land["name"] == "Land Registry Standard"
+    assert [(x["product"], x["plan"]) for x in am.get("/prices").json()] == [("hub", "standard"), ("hub", "advanced"), ("land", "standard")]
+    assert boss.delete("/prices/land/standard").status_code == 204 and boss.delete("/prices/land/standard").status_code == 404
     c = am.get("/company").json()
     assert c["rc"] == "9631300" and c["tin"] == "2623706767701" and c["bank_account_number"] == "3005285279" and c["vat_rate"] == 7.5
 
@@ -225,3 +230,30 @@ def test_geohub_customers_and_requests_come_into_the_crm(client, boss, hire, hub
     monkeypatch.setattr(settings, "geohub_url", "")
     assert sup.get("/geohub").json()["linked"] is False
     assert "not linked to Geohub yet" in sup.get("/geohub/orgs").json()["detail"]
+
+
+def test_an_invoice_for_another_product(client, boss, hire, hub):
+    am, fin = hire("account_manager"), hire("finance", "Femi Cash")
+    org = hub.org("Abuja Lands Bureau", ends=date.today() + timedelta(days=200))
+    a = client_with_contact(am)
+    am.put(f"/accounts/{a['id']}/geohub", json={"org_id": org["id"]})
+    s = date.today()
+    inv = am.post("/invoices", json={"account_id": a["id"], "lines": [{"description": "Land Registry Standard licence", "unit_price_ngn": 2500000}],
+                                     "licence_product": "land", **lic("standard", s)}).json()
+    assert inv["licence_product"] == "land"
+    assert am.patch(f"/invoices/{inv['id']}", json={"licence_product": "farm"}).json()["licence_product"] == "farm"
+    am.patch(f"/invoices/{inv['id']}", json={"licence_product": "land"})
+    inv = am.post(f"/invoices/{inv['id']}/issue", json={}).json()
+    pdf = am.get(f"/invoices/{inv['id']}/pdf")
+    assert pdf.status_code == 200
+    paid = fin.post(f"/invoices/{inv['id']}/payments", json={"amount_ngn": inv["total_ngn"], "paid_on": date.today().isoformat()}).json()
+    assert paid["licence_applied_at"] and hub.calls[-1][2]["product"] == "land" and hub.calls[-1][2]["invoice_ref"] == inv["number"]
+    assert any(p["product"] == "land" for p in org["products"])
+    # a client not yet on Geohub cannot be set up from a Land Registry invoice
+    b = client_with_contact(am)
+    x = am.post("/invoices", json={"account_id": b["id"], "lines": [{"description": "Land", "unit_price_ngn": 10}], "licence_product": "land", **lic()}).json()
+    x = am.post(f"/invoices/{x['id']}/issue", json={}).json()
+    fin.post(f"/invoices/{x['id']}/payments", json={"amount_ngn": x["total_ngn"], "paid_on": date.today().isoformat()})
+    contact = am.get(f"/accounts/{b['id']}").json()["contacts"][0]
+    r = am.post(f"/accounts/{b['id']}/geohub/setup", json={"kind": "paid", "contact_id": contact["id"], "invoice_id": x["id"]})
+    assert r.status_code == 409 and "Set the organization up on Geohub first" in r.json()["detail"]

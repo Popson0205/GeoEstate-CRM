@@ -4,7 +4,7 @@ import { InvoiceBadge } from "../components/InvoiceTable";
 import { Button, ErrorText, useAction } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { LICENCE_LABEL, day, isoToday, naira2, when } from "../lib/format";
+import { PRODUCT_NAME, day, isoToday, licenceTitle, naira2, when } from "../lib/format";
 import type { GeohubOrg, InvoiceDetail } from "../lib/types";
 
 const METHOD: Record<string, string> = { bank_transfer: "Bank transfer", cash: "Cash", cheque: "Cheque", other: "Other" };
@@ -111,8 +111,8 @@ function Licence({ inv, org, onChange }: { inv: InvoiceDetail; org: GeohubOrg | 
   const { busy, run } = useAction();
   return (
     <section className="card" aria-labelledby="lic-h">
-      <h2 id="lic-h">Geohub licence</h2>
-      <p><strong>{LICENCE_LABEL[inv.licence_plan!]}</strong>, {day(inv.licence_starts)} to {day(inv.licence_ends)}</p>
+      <h2 id="lic-h">{PRODUCT_NAME[inv.licence_product]} licence</h2>
+      <p><strong>{licenceTitle(inv.licence_product, inv.licence_plan!)}</strong>, {day(inv.licence_starts)} to {day(inv.licence_ends)}</p>
       {inv.licence_applied_at ? <p className="ok-text">Switched on in Geohub, {when(inv.licence_applied_at)}.</p>
         : inv.status === "paid" ? <>
           <p className="error">Not switched on yet. {inv.licence_error}</p>
@@ -122,8 +122,18 @@ function Licence({ inv, org, onChange }: { inv: InvoiceDetail; org: GeohubOrg | 
             {!inv.geohub_org_id && <Link className="btn btn-sm" to={`/clients/${inv.account_id}#geohub`}>Link or set up the client on Geohub</Link>}
           </div>
         </> : <p className="muted">Switched on when this invoice is paid in full{inv.geohub_org_id ? "." : ". The client is not linked to Geohub yet."}</p>}
-      {org && <p className="muted small">On Geohub now: {org.plan_name}, {org.status_name.toLowerCase()}{org.subscription_ends ? ` until ${day(org.subscription_ends)}` : ""}. <a href={org.console_url} target="_blank" rel="noreferrer">Open in Geohub</a></p>}
+      {org && <NowOnGeohub org={org} product={inv.licence_product} />}
     </section>
+  );
+}
+
+function NowOnGeohub({ org, product }: { org: GeohubOrg; product: string }) {
+  const p = product === "hub" ? { plan_name: org.plan_name, status_name: org.status_name, subscription_ends: org.subscription_ends }
+    : org.products?.find((x) => x.product === product);
+  return (
+    <p className="muted small">{p ? <>Now: {p.plan_name}, {(p.status_name ?? "").toLowerCase()}{p.subscription_ends ? ` until ${day(p.subscription_ends)}` : ""}. </>
+      : <>{org.name} does not have {PRODUCT_NAME[product]} yet. </>}
+      <a href={org.console_url} target="_blank" rel="noreferrer">Open in Geohub</a></p>
   );
 }
 
@@ -181,7 +191,7 @@ function PaymentForm({ inv, org, onDone, onCancel }: { inv: InvoiceDetail; org: 
       <div className="field"><label htmlFor="pay-ref">Bank reference</label><input id="pay-ref" value={p.reference} onChange={(e) => setP({ ...p, reference: e.target.value })} placeholder="From the bank alert" /></div>
       <div className="field wide"><label htmlFor="pay-note">Note (optional)</label><input id="pay-note" value={p.note} onChange={(e) => setP({ ...p, note: e.target.value })} /></div>
       {full && inv.licence_plan && <p className="wide small">{inv.geohub_org_id
-        ? `Paying in full switches on ${LICENCE_LABEL[inv.licence_plan]} in Geohub, ${day(inv.licence_starts)} to ${day(inv.licence_ends)}.`
+        ? `Paying in full switches on ${licenceTitle(inv.licence_product, inv.licence_plan)}, ${day(inv.licence_starts)} to ${day(inv.licence_ends)}.`
         : "Paying in full marks it paid. This client is not on Geohub yet: set it up from the client's page afterwards."}</p>}
       {full && org?.status === "suspended" && <label className="check wide"><input type="checkbox" checked={p.lift_suspension} onChange={(e) => setP({ ...p, lift_suspension: e.target.checked })} />
         Also lift the client's suspension on Geohub{org.suspended_reason ? ` (${org.suspended_reason})` : ""}</label>}

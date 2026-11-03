@@ -11,7 +11,19 @@ from . import geohub
 from .config import settings
 
 KOBO = Decimal("0.01")
-PLAN_NAMES = {"standard": "Organization Standard", "advanced": "Organization Advanced"}
+PRODUCTS = {"hub": "Geohub", "land": "Land Registry", "check": "LandCheck", "farm": "FarmScan"}
+PLAN_WORDS = {"standard": "Standard", "advanced": "Advanced", "custom": "Custom"}
+
+
+def plan_name(product: str, plan: str) -> str:
+    """Geohub's plans are Organization Standard and Advanced; the other products' are e.g. Land Registry Standard."""
+    if product == "hub":
+        return f"Organization {PLAN_WORDS[plan]}" if plan != "custom" else "Geohub Custom"
+    return f"{PRODUCTS[product]} {PLAN_WORDS[plan]}"
+
+
+def licence_title(product: str, plan: str) -> str:
+    return f"Geohub {plan_name(product, plan)}" if product == "hub" and plan != "custom" else plan_name(product, plan)
 
 
 def money(x) -> Decimal:
@@ -43,8 +55,8 @@ def licence_dates(current_end: date | None, today: date | None = None) -> tuple[
     return start, end
 
 
-def licence_line(plan: str, starts: date, ends: date) -> str:
-    return f"Geohub {PLAN_NAMES[plan]} licence, one year ({long_date(starts)} to {long_date(ends)})"
+def licence_line(product: str, plan: str, starts: date, ends: date) -> str:
+    return f"{licence_title(product, plan)} licence, one year ({long_date(starts)} to {long_date(ends)})"
 
 
 def long_date(d: date | None) -> str:
@@ -78,7 +90,7 @@ async def apply_licence(conn, inv: dict, staff_name: str, lift_suspension: bool 
     else:
         try:
             await geohub.call("POST", f"/orgs/{org_id}/licence", json={
-                "plan": inv["licence_plan"], "subscription_starts": inv["licence_starts"].isoformat(),
+                "product": inv["licence_product"], "plan": inv["licence_plan"], "subscription_starts": inv["licence_starts"].isoformat(),
                 "subscription_ends": inv["licence_ends"].isoformat(), "invoice_ref": inv["number"],
                 "staff_name": staff_name, "lift_suspension": lift_suspension})
         except geohub.GeohubError as e:

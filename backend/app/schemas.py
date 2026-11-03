@@ -326,12 +326,14 @@ class AuditOut(BaseModel):
 
 
 # ---------- prices, invoices and payments ----------
-LicencePlan = Literal["standard", "advanced"]
+LicencePlan = Literal["standard", "advanced", "custom"]
+Product = Literal["hub", "land", "check", "farm"]
 InvoiceStatus = Literal["draft", "issued", "paid", "void"]
 Money = Field(ge=0, max_digits=14, decimal_places=2)
 
 
 class PriceOut(BaseModel):
+    product: Product = "hub"
     plan: LicencePlan
     name: str
     amount_ngn: Decimal = Field(description="A year, before VAT")
@@ -359,7 +361,8 @@ class InvoiceIn(BaseModel):
     deal_id: UUID | None = None
     lines: list[LineIn] = Field(min_length=1, max_length=50)
     notes: str = Field("", max_length=4000, description="Printed on the invoice")
-    licence_plan: LicencePlan | None = Field(None, description="The Geohub licence this invoice pays for")
+    licence_product: Product = Field("hub", description="The product whose licence this invoice pays for")
+    licence_plan: LicencePlan | None = Field(None, description="The licence this invoice pays for, switched on when it is paid")
     licence_starts: date | None = None
     licence_ends: date | None = None
 
@@ -368,6 +371,7 @@ class InvoicePatch(BaseModel):
     deal_id: UUID | None = None
     lines: list[LineIn] | None = Field(None, min_length=1, max_length=50)
     notes: str | None = Field(None, max_length=4000)
+    licence_product: Product | None = None
     licence_plan: LicencePlan | None = None
     licence_starts: date | None = None
     licence_ends: date | None = None
@@ -426,6 +430,7 @@ class InvoiceOut(BaseModel):
     total_ngn: Decimal
     paid_ngn: Decimal
     balance_ngn: Decimal
+    licence_product: Product = "hub"
     licence_plan: LicencePlan | None
     licence_starts: date | None
     licence_ends: date | None
@@ -480,6 +485,7 @@ class GeohubOrg(BaseModel):
     created_at: datetime
     last_active: datetime | None
     console_url: str
+    products: list[dict] = Field(default_factory=list, description="Every product it has on Geohub, Geohub first")
     crm_account_id: UUID | None = None
     crm_account_name: str | None = None
 

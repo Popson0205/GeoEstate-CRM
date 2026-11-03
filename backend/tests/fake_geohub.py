@@ -23,7 +23,7 @@ class FakeGeohub:
                           "subscription_ends": ends.isoformat() if ends else None, "grace_ends": None, "suspended_reason": None,
                           "owner_name": owner[0], "owner_email": owner[1], "created_at": datetime.now(timezone.utc).isoformat(),
                           "last_active": None, "console_url": f"{URL}/admin/customers/{oid}", "already_applied": False,
-                          "refs": set()}
+                          "refs": set(), "products": [{"product": "hub", "plan": plan, "status": status}]}
         return self.orgs[oid]
 
     def request(self, organization, plan="standard", **kw):
@@ -56,7 +56,7 @@ class FakeGeohub:
                          kind=body["licence_kind"], status="demo" if body["licence_kind"] == "demo" else "active",
                          owner=(body["owner_name"], body["owner_email"]))
             if body.get("invoice_ref"):
-                o["refs"].add(body["invoice_ref"])
+                o["refs"].add(f"hub/{body['invoice_ref']}")
                 o["subscription_ends"] = body["subscription_ends"]
             return httpx.Response(201, json=self._public(o))
         parts = path.strip("/").split("/")
@@ -67,9 +67,14 @@ class FakeGeohub:
             if req.method == "GET":
                 return httpx.Response(200, json=self._public(o))
             if parts[2:] == ["licence"]:
-                if body["invoice_ref"] in o["refs"]:
+                key = f"{body.get('product', 'hub')}/{body['invoice_ref']}"
+                if key in o["refs"]:
                     return httpx.Response(200, json=self._public(o) | {"already_applied": True})
-                o["refs"].add(body["invoice_ref"])
+                o["refs"].add(key)
+                if body.get("product", "hub") != "hub":
+                    o["products"] = [p for p in o["products"] if p["product"] != body["product"]] + [
+                        {"product": body["product"], "plan": body["plan"], "status": "active", "subscription_ends": body["subscription_ends"]}]
+                    return httpx.Response(200, json=self._public(o))
                 o.update(plan=body["plan"], licence_kind="paid", subscription_starts=body["subscription_starts"],
                          subscription_ends=body["subscription_ends"],
                          status="active" if o["status"] != "suspended" or body["lift_suspension"] else "suspended")

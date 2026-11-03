@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { day } from "../lib/format";
+import { PRODUCT_NAME, day, planName } from "../lib/format";
 import type { AccountDetail, GeohubOrg } from "../lib/types";
 import { statusTone } from "../pages/GeohubPage";
 import { Button, ErrorText, useAction } from "./ui";
@@ -16,7 +16,7 @@ export default function GeohubCard({ a, onChange }: { a: AccountDetail; onChange
   const [mode, setMode] = useState<"link" | "setup" | null>(null);
   const [choices, setChoices] = useState<GeohubOrg[] | null>(null);
   const [orgId, setOrgId] = useState("");
-  const paid = a.invoices.filter((i) => i.status === "paid" && i.licence_plan);
+  const paid = a.invoices.filter((i) => i.status === "paid" && i.licence_plan && (i.licence_product ?? "hub") === "hub");
   const [setup, setSetup] = useState({ kind: (paid.length ? "paid" : "demo") as "paid" | "demo", contact_id: a.contacts[0]?.id ?? "", invoice_id: paid[0]?.id ?? "" });
 
   useEffect(() => {
@@ -52,6 +52,8 @@ export default function GeohubCard({ a, onChange }: { a: AccountDetail; onChange
           <dt>Licence</dt><dd>{org.plan_name}{org.licence_kind === "demo" && " (demo)"} <span className={`badge ${statusTone(org.status)}`}>{org.status_name}</span></dd>
           {org.subscription_ends && <><dt>Ends</dt><dd>{day(org.subscription_ends)}{org.status === "grace" && org.grace_ends && <span className="late"> · read-only from {day(org.grace_ends)}</span>}</dd></>}
           {org.suspended_reason && <><dt>Suspended</dt><dd>{org.suspended_reason}</dd></>}
+          {(org.products ?? []).filter((p) => p.product !== "hub").map((p) => <div key={p.product} className="kv-row"><dt>{PRODUCT_NAME[p.product]}</dt>
+            <dd>{p.plan_name ?? p.plan} <span className={`badge ${statusTone(p.status)}`}>{p.status_name ?? p.status}</span>{p.subscription_ends ? <span className="muted"> until {day(p.subscription_ends)}</span> : null}</dd></div>)}
           <dt>Owner</dt><dd>{org.owner_name} <span className="muted">{org.owner_email}</span></dd>
           <dt>Last used</dt><dd>{org.last_active ? day(org.last_active) : "Not yet"}</dd>
         </dl>
@@ -83,7 +85,7 @@ export default function GeohubCard({ a, onChange }: { a: AccountDetail; onChange
           {setup.kind === "paid" && (
             <div className="field"><label htmlFor="gh-inv">Paid invoice</label>
               <select id="gh-inv" required value={setup.invoice_id} onChange={(e) => setSetup({ ...setup, invoice_id: e.target.value })}>
-                {paid.map((i) => <option key={i.id} value={i.id}>{i.number}: {i.licence_plan === "advanced" ? "Advanced" : "Standard"}, {day(i.licence_starts)} to {day(i.licence_ends)}</option>)}
+                {paid.map((i) => <option key={i.id} value={i.id}>{i.number}: {planName("hub", i.licence_plan!)}, {day(i.licence_starts)} to {day(i.licence_ends)}</option>)}
               </select></div>
           )}
           {!paid.length && <p className="muted small">No paid invoice with a licence yet: a paid set-up comes from one.</p>}

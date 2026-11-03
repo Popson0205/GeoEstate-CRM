@@ -183,6 +183,10 @@ async def setup(account_id: UUID, body: SetupIn, user=Depends(require("geohub.li
         inv = await cur.fetchone()
         if not inv or inv["status"] != "paid" or not inv["licence_plan"]:
             raise Problem(409, "That invoice is not paid, or has no licence on it.", code="not_paid")
+        if inv["licence_product"] != "hub":
+            raise Problem(409, f"Invoice {inv['number']} is for {invoicing.PRODUCTS[inv['licence_product']]}, which is added to an "
+                               "organization that is already on Geohub. Set the organization up on Geohub first (a Geohub licence or "
+                               "a demo), then switch this licence on from the invoice.", code="not_hub")
         payload |= {"plan": inv["licence_plan"], "subscription_starts": inv["licence_starts"].isoformat(),
                     "subscription_ends": inv["licence_ends"].isoformat(), "invoice_ref": inv["number"]}
     if a["geohub_request_id"]:

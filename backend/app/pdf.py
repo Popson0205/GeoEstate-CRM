@@ -14,7 +14,7 @@ from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate
 from xml.sax.saxutils import escape
 
 from .config import settings
-from .invoicing import PLAN_NAMES, long_date, naira_words
+from .invoicing import licence_title, long_date, naira_words
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 NAVY = colors.HexColor("#1b2b5e")
@@ -100,7 +100,7 @@ def render(inv: dict) -> bytes:
         bill.append(P(f"TIN {e(b['tin'])}", "muted"))
     right = []
     if inv.get("licence_plan"):
-        right = [P("GEOHUB LICENCE", "label"), P(f"<b>{e(PLAN_NAMES[inv['licence_plan']])}</b>", "strong"),
+        right = [P("LICENCE", "label"), P(f"<b>{e(licence_title(inv.get('licence_product') or 'hub', inv['licence_plan']))}</b>", "strong"),
                  P(f"{e(long_date(inv['licence_starts']))} to {e(long_date(inv['licence_ends']))}"),
                  P("Switched on by this payment." if status == "paid" else "Switched on when this invoice is paid.", "muted")]
     meta = Table([[bill, right]], colWidths=[width * 0.58, width * 0.42])
