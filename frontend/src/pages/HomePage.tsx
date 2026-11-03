@@ -25,6 +25,8 @@ export default function HomePage() {
         <Link to="/tasks" className="tile"><span>Your open tasks</span><strong>{h.my_open_tasks}</strong>{h.my_overdue > 0 && <em className="late">{h.my_overdue} late</em>}</Link>
         <Link to="/deals" className="tile"><span>Open pipeline</span><strong>{naira(openValue)}</strong><em>{plural(open.reduce((s, p) => s + p.count, 0), "deal")}</em></Link>
         <div className="tile"><span>Won this month</span><strong>{naira(h.won_this_month_ngn)}</strong></div>
+        <Link to="/invoices" className="tile"><span>Owed to us</span><strong>{naira(h.unpaid_ngn)}</strong>{h.overdue_invoices > 0 ? <em className="late">{naira(h.overdue_ngn)} overdue</em> : <em>on unpaid invoices</em>}</Link>
+        <div className="tile"><span>Received this month</span><strong>{naira(h.received_this_month_ngn)}</strong></div>
         <Link to="/clients" className="tile"><span>Customers</span><strong>{h.accounts.customer}</strong><em>{plural(h.accounts.lead, "lead")}</em></Link>
       </div>
       <div className="two">

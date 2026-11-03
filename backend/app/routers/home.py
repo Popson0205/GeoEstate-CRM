@@ -28,7 +28,16 @@ async def home(user=Depends(current_user), conn=Depends(get_conn)):
     my_tasks = await cur.fetchall()
     cur = await conn.execute(ACTIVITY_SQL + "WHERE x.done_at IS NOT NULL ORDER BY x.done_at DESC LIMIT 10")
     recent = await cur.fetchall()
-    return {"pipeline": pipeline, "won_this_month_ngn": by["won"]["value_ngn"] if "won" in by else 0, "accounts": accounts,
+    cur = await conn.execute(
+        "SELECT COALESCE(sum(owed), 0) AS unpaid, COALESCE(sum(owed) FILTER (WHERE due_date < current_date), 0) AS overdue, "
+        "  count(*) FILTER (WHERE due_date < current_date) AS overdue_n "
+        "FROM (SELECT i.due_date, i.total_ngn - COALESCE((SELECT sum(amount_ngn) FROM payments p WHERE p.invoice_id = i.id), 0) AS owed "
+        "      FROM invoices i WHERE i.status = 'issued') x")
+    money = await cur.fetchone()
+    cur = await conn.execute("SELECT COALESCE(sum(amount_ngn), 0) AS n FROM payments WHERE paid_on >= date_trunc('month', current_date)")
+    received = (await cur.fetchone())["n"]
+    return {"unpaid_ngn": money["unpaid"], "overdue_ngn": money["overdue"], "overdue_invoices": money["overdue_n"],
+            "received_this_month_ngn": received, "pipeline": pipeline, "won_this_month_ngn": by["won"]["value_ngn"] if "won" in by else 0, "accounts": accounts,
             "my_open_tasks": mine["open"], "my_overdue": mine["overdue"], "my_tasks": my_tasks, "recent": recent}
 
 

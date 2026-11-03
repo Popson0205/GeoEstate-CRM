@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ActivityList, AddActivity } from "../components/Activities";
+import GeohubCard from "../components/GeohubCard";
+import InvoiceTable from "../components/InvoiceTable";
 import { DealForm } from "./DealsPage";
 import { Button, ErrorText, useAction } from "../components/ui";
 import { api } from "../lib/api";
@@ -9,7 +11,7 @@ import { PLAN_LABEL, STAGE_LABEL, STATUS_LABEL, day, naira } from "../lib/format
 import type { AccountDetail, AccountStatus, Contact, StaffBrief } from "../lib/types";
 
 const FIELDS: [keyof AccountDetail, string][] = [["industry", "Industry"], ["email", "Email"], ["phone", "Phone"], ["website", "Website"],
-  ["address", "Address"], ["city", "City"], ["state", "State"], ["country", "Country"]];
+  ["address", "Address"], ["city", "City"], ["state", "State"], ["country", "Country"], ["tin", "TIN"]];
 
 export default function ClientPage() {
   const { id = "" } = useParams();
@@ -33,8 +35,8 @@ export default function ClientPage() {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    const { name, industry, email, phone, website, address, city, state, country, status, owner_id, notes } = draft as AccountDetail;
-    if (await run("save", () => api.updateAccount(a!.id, { name, industry, email, phone, website, address, city, state, country, status, owner_id, notes }), "Saved.")) {
+    const { name, industry, email, phone, website, address, city, state, country, tin, status, owner_id, notes } = draft as AccountDetail;
+    if (await run("save", () => api.updateAccount(a!.id, { name, industry, email, phone, website, address, city, state, country, tin, status, owner_id, notes }), "Saved.")) {
       setEditing(false); load();
     }
   }
@@ -118,6 +120,14 @@ export default function ClientPage() {
               ))}
             </ul>
           )}
+        </section>
+      </div>
+
+      <div className="two">
+        <GeohubCard a={a} onChange={load} />
+        <section className="card" aria-labelledby="inv-h">
+          <div className="head"><h2 id="inv-h">Invoices</h2>{can("invoices.edit") && <Link className="btn btn-sm" to={`/invoices/new?client=${a.id}`}>New invoice</Link>}</div>
+          {a.invoices.length === 0 ? <p className="muted">No invoices yet.</p> : <InvoiceTable items={a.invoices} showClient={false} />}
         </section>
       </div>
 

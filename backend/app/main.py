@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import errors
 from .config import settings
 from .db import lifespan, pool
-from .routers import accounts, activities, auth, deals, home, staff
+from .routers import accounts, activities, auth, deals, geohub_link, home, invoices, staff
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -19,7 +19,8 @@ app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.co
                    allow_methods=["*"], allow_headers=["*"])
 P = settings.api_prefix
 
-for r in (auth.router, auth.me_router, staff.router, accounts.router, deals.router, activities.router, home.router):
+for r in (auth.router, auth.me_router, staff.router, accounts.router, deals.router, activities.router, home.router, invoices.router,
+          geohub_link.router):
     app.include_router(r, prefix=P)
 
 

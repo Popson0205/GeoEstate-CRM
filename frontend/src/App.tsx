@@ -5,6 +5,10 @@ import { ForgotPage, LoginPage, SetPasswordPage } from "./pages/AuthPages";
 import ClientPage from "./pages/ClientPage";
 import ClientsPage from "./pages/ClientsPage";
 import DealsPage from "./pages/DealsPage";
+import GeohubPage from "./pages/GeohubPage";
+import InvoiceEditPage from "./pages/InvoiceEditPage";
+import InvoicePage from "./pages/InvoicePage";
+import InvoicesPage from "./pages/InvoicesPage";
 import HomePage from "./pages/HomePage";
 import LogPage from "./pages/LogPage";
 import SecurityPage from "./pages/SecurityPage";
@@ -23,6 +27,11 @@ export default function App() {
         <Route path="/clients/:id" element={<ClientPage />} />
         <Route path="/deals" element={<DealsPage />} />
         <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/invoices" element={<InvoicesPage />} />
+        <Route path="/invoices/new" element={<RequireAuth perm="invoices.edit"><InvoiceEditPage /></RequireAuth>} />
+        <Route path="/invoices/:id" element={<InvoicePage />} />
+        <Route path="/invoices/:id/edit" element={<RequireAuth perm="invoices.edit"><InvoiceEditPage /></RequireAuth>} />
+        <Route path="/geohub" element={<GeohubPage />} />
         <Route path="/staff" element={<StaffPage />} />
         <Route path="/log" element={<RequireAuth perm="audit.view"><LogPage /></RequireAuth>} />
         <Route path="/security" element={<SecurityPage />} />

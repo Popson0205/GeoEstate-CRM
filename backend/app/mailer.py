@@ -2,6 +2,7 @@
 the email is written to the log instead, link included, so a first deploy can still be set up. Sending never
 raises: a failed email is logged and the action that caused it still succeeds."""
 import asyncio
+import base64
 import html
 import logging
 import re
@@ -46,13 +47,18 @@ def _text(body: str, action) -> str:
     return body.strip() + (f"\n\n{action[0]}: {action[1]}" if action else "") + "\n"
 
 
-async def send_email(to: str, subject: str, body: str, *, action: tuple[str, str] | None = None) -> bool:
+async def send_email(to: str, subject: str, body: str, *, action: tuple[str, str] | None = None,
+                     attachments: list[tuple[str, bytes]] | None = None) -> bool:
+    """attachments: (file name, content) pairs, such as an invoice PDF."""
     if not settings.brevo_api_key:
-        log.warning("email not sent (no BREVO_API_KEY): to=%s subject=%s\n%s", to, subject, _text(body, action))
+        log.warning("email not sent (no BREVO_API_KEY): to=%s subject=%s attachments=%s\n%s", to, subject,
+                    [n for n, _ in attachments or []], _text(body, action))
         return False
     name, email = _address(settings.mail_from)
     payload = {"sender": {"email": email, **({"name": name} if name else {})}, "to": [{"email": to}], "subject": subject,
                "htmlContent": render_html(subject, body, action), "textContent": _text(body, action)}
+    if attachments:
+        payload["attachment"] = [{"name": n, "content": base64.b64encode(c).decode()} for n, c in attachments]
     if settings.mail_reply_to:
         payload["replyTo"] = {"email": _address(settings.mail_reply_to)[1]}
     try:

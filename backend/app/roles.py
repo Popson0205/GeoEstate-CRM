@@ -10,6 +10,10 @@ PERMS = {
     "records.delete": ("super_admin",),                             # deleting a client or a deal
     "staff.manage": ("super_admin",),
     "audit.view": ("super_admin", "finance"),
+    "invoices.edit": ("super_admin", "account_manager", "finance"),   # draft, issue and email invoices
+    "payments.record": ("super_admin", "finance"),                   # record money received; void invoices
+    "prices.edit": ("super_admin",),
+    "geohub.link": ("super_admin", "account_manager"),              # link clients to Geohub, import, set up customers
 }
 
 
