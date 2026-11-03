@@ -89,3 +89,14 @@ def test_sign_in_guessing_is_limited(client, boss, monkeypatch):
     for _ in range(10):
         client.post("/auth/login", json={"email": boss.email, "password": "guess-guess"})
     assert client.post("/auth/login", json={"email": boss.email, "password": boss.password}).status_code == 429
+
+
+def test_the_crm_shares_a_database_without_touching_geohub(client, boss):
+    import psycopg
+    with psycopg.connect(settings.database_url) as c:
+        assert [r[0] for r in c.execute("SELECT email FROM public.users")] == ["geohub@user.example"]
+        assert [r[0] for r in c.execute("SELECT name FROM public.schema_migrations")] == ["001_geohub.sql"]
+        crm = {r[0] for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
+                                       (settings.db_schema,))}
+        assert {"users", "accounts", "deals", "activities", "schema_migrations"} <= crm
+        assert c.execute(f"SELECT count(*) FROM {settings.db_schema}.users WHERE email = %s", (boss.email,)).fetchone()[0] == 1

@@ -7,6 +7,8 @@ class Settings(BaseSettings):
 
     env: str = "dev"
     database_url: str
+    # The CRM keeps all its tables in this schema, so it can share Geohub's database without touching its tables.
+    db_schema: str = "crm"
     db_pool_max: int = 5
     jwt_secret: str
     access_token_minutes: int = 30
@@ -31,6 +33,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _checks(self):
         self.app_url = self.app_url.strip().rstrip("/")
+        if not self.db_schema.isidentifier() or self.db_schema.lower() == "public":
+            raise ValueError("DB_SCHEMA must be a plain name other than public, e.g. crm")
         if self.env == "prod" and (len(self.jwt_secret) < 32 or self.jwt_secret.startswith("change-me")):
             raise ValueError("JWT_SECRET must be a random string of 32+ characters when ENV=prod")
         return self

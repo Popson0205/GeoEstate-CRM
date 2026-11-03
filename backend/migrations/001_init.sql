@@ -1,5 +1,4 @@
 -- GeoEstate CRM: staff, client accounts and their contacts, deals, staff activities, and a log of what staff did.
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ---------- staff ----------
 CREATE TABLE users (

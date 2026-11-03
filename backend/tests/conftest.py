@@ -52,8 +52,13 @@ def client():
         m.send_email = _fake_send
     mfa.clock = CLOCK
     import psycopg
-    with psycopg.connect(settings.database_url, autocommit=True) as c:      # a clean database each run
-        c.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    with psycopg.connect(settings.database_url, autocommit=True) as c:      # a clean CRM schema each run
+        c.execute(f'DROP SCHEMA IF EXISTS "{settings.db_schema}" CASCADE')
+        # stand-ins for Geohub's tables, which share the database and must be left alone
+        c.execute("CREATE TABLE IF NOT EXISTS public.users (id serial PRIMARY KEY, email text)")
+        c.execute("CREATE TABLE IF NOT EXISTS public.schema_migrations (name text PRIMARY KEY)")
+        c.execute("DELETE FROM public.users; INSERT INTO public.users (email) VALUES ('geohub@user.example')")
+        c.execute("INSERT INTO public.schema_migrations VALUES ('001_geohub.sql') ON CONFLICT DO NOTHING")
     with TestClient(app) as c:
         yield c
 

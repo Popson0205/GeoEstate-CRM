@@ -29,13 +29,15 @@ everyone uses two-step sign-in.
 
 ## Deploying on Railway
 
-1. In your Railway project, **New → GitHub Repo → GeoEstate-CRM**. Railway builds the `Dockerfile`.
-2. **New → Database → PostgreSQL** in the same project.
+1. In Geohub's Railway project, **New → GitHub Repo → GeoEstate-CRM**. Railway builds the `Dockerfile`.
+2. No new database is needed: the CRM uses **Geohub's PostgreSQL**. It keeps all its tables in their own
+   `crm` schema (created on first start), so they never mix with Geohub's tables, and Geohub never sees them.
 3. In the CRM service's **Variables**:
 
    | Variable | Value |
    | --- | --- |
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the database) |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}`: the same database Geohub uses (pick it from the reference list) |
+   | `DB_SCHEMA` | optional; `crm` by default |
    | `JWT_SECRET` | a long random string (64 characters). Keep it: changing it signs everyone out and makes everyone set up two-step sign-in again |
    | `APP_URL` | the service's address, e.g. `https://geoestate-crm-production.up.railway.app` |
    | `SUPER_ADMIN_EMAIL` | `geoestate.ng@gmail.com` (the default) |
