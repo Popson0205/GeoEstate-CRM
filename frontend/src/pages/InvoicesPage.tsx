@@ -4,8 +4,8 @@ import InvoiceTable from "../components/InvoiceTable";
 import { Button, ErrorText, useAction } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { day, naira, naira2 } from "../lib/format";
-import type { Invoice, Price } from "../lib/types";
+import { PRODUCTS, PRODUCT_NAME, day, naira, naira2, planName } from "../lib/format";
+import type { Invoice, LicencePlan, Price, Product } from "../lib/types";
 
 const FILTERS = [["unpaid", "Unpaid"], ["overdue", "Overdue"], ["draft", "Drafts"], ["paid", "Paid"], ["void", "Void"], ["", "All"]] as const;
 
@@ -46,38 +46,62 @@ export default function InvoicesPage() {
   );
 }
 
-/** What a year of each plan costs; super admins change it. */
+/** What a year of each product's plans costs; super admins set them. */
 function Prices() {
   const { can } = useAuth();
   const { busy, run } = useAction();
   const [prices, setPrices] = useState<Price[]>([]);
   const [edit, setEdit] = useState<Record<string, string> | null>(null);
-  useEffect(() => { void api.prices().then(setPrices, () => setPrices([])); }, []);
+  const [add, setAdd] = useState<{ product: Product; plan: LicencePlan; amount: string } | null>(null);
+  const key = (p: Price) => `${p.product}/${p.plan}`;
+  const load = () => void api.prices().then(setPrices, () => setPrices([]));
+  useEffect(load, []);
   async function save(e: FormEvent) {
     e.preventDefault();
     for (const p of prices) {
-      if (edit![p.plan] !== undefined && Number(edit![p.plan]) !== Number(p.amount_ngn)) {
-        if (!await run("prices", () => api.setPrice(p.plan, edit![p.plan]))) return;
-      }
+      const v = edit![key(p)];
+      if (v !== undefined && Number(v) !== Number(p.amount_ngn) && !await run("prices", () => api.setPrice(p.product, p.plan, v))) return;
     }
-    setEdit(null); setPrices(await api.prices());
+    setEdit(null); load();
   }
+  async function addPrice(e: FormEvent) {
+    e.preventDefault();
+    if (await run("add", () => api.setPrice(add!.product, add!.plan, add!.amount), `${planName(add!.product, add!.plan)} is priced.`)) { setAdd(null); load(); }
+  }
+  const groups = PRODUCTS.map((k) => ({ product: k, items: prices.filter((p) => p.product === k) })).filter((g) => g.items.length);
   return (
     <section className="card" style={{ marginTop: 18 }} aria-labelledby="prices-h">
-      <div className="head"><h2 id="prices-h">Prices</h2>{can("prices.edit") && !edit && <Button small onClick={() => setEdit(Object.fromEntries(prices.map((p) => [p.plan, String(Number(p.amount_ngn))])))}>Change</Button>}</div>
-      <p className="muted small">A year of each plan, before 7.5% VAT. New invoices start from these.</p>
+      <div className="head"><h2 id="prices-h">Prices</h2>
+        {can("prices.edit") && !edit && !add && <div className="actions">
+          <Button small onClick={() => setEdit(Object.fromEntries(prices.map((p) => [key(p), String(Number(p.amount_ngn))])))}>Change</Button>
+          <Button small onClick={() => setAdd({ product: "land", plan: "standard", amount: "" })}>Add a price</Button>
+        </div>}
+      </div>
+      <p className="muted small">A year of each plan, before 7.5% VAT. New invoices start from these; a plan without a price is typed on the invoice.</p>
+      {add && (
+        <form className="row" onSubmit={addPrice} aria-label="Add a price" style={{ marginBottom: 12 }}>
+          <div className="field"><label htmlFor="np-product">Product</label>
+            <select id="np-product" value={add.product} onChange={(e) => setAdd({ ...add, product: e.target.value as Product })}>{PRODUCTS.map((k) => <option key={k} value={k}>{PRODUCT_NAME[k]}</option>)}</select></div>
+          <div className="field"><label htmlFor="np-plan">Plan</label>
+            <select id="np-plan" value={add.plan} onChange={(e) => setAdd({ ...add, plan: e.target.value as LicencePlan })}>
+              <option value="standard">Standard</option><option value="advanced">Advanced</option><option value="custom">Custom</option></select></div>
+          <div className="field"><label htmlFor="np-amount">A year (₦, before VAT)</label>
+            <input id="np-amount" type="number" min="0" step="0.01" required value={add.amount} onChange={(e) => setAdd({ ...add, amount: e.target.value })} /></div>
+          <div className="actions"><Button type="submit" variant="primary" busy={busy === "add"}>Save price</Button><Button variant="ghost" onClick={() => setAdd(null)}>Cancel</Button></div>
+        </form>
+      )}
       {edit ? (
         <form className="row" onSubmit={save}>
           {prices.map((p) => (
-            <div className="field" key={p.plan}><label htmlFor={`price-${p.plan}`}>{p.name} (₦)</label>
-              <input id={`price-${p.plan}`} type="number" min="0" step="0.01" required value={edit[p.plan]} onChange={(e) => setEdit({ ...edit, [p.plan]: e.target.value })} /></div>
+            <div className="field" key={key(p)}><label htmlFor={`price-${p.product}-${p.plan}`}>{planName(p.product, p.plan)} (₦)</label>
+              <input id={`price-${p.product}-${p.plan}`} type="number" min="0" step="0.01" required value={edit[key(p)]} onChange={(e) => setEdit({ ...edit, [key(p)]: e.target.value })} /></div>
           ))}
           <div className="actions"><Button type="submit" variant="primary" busy={busy === "prices"}>Save prices</Button><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button></div>
         </form>
       ) : (
         <dl className="kv">
-          {prices.map((p) => <div className="kv-row" key={p.plan}><dt>{p.name}</dt><dd><strong className="num">{naira(p.amount_ngn)}</strong>
-            <span className="muted small"> a year · {naira(Number(p.amount_ngn) * 1.075)} with VAT{p.updated_by_name ? ` · set by ${p.updated_by_name}, ${day(p.updated_at)}` : ""}</span></dd></div>)}
+          {groups.map((g) => g.items.map((p) => <div className="kv-row" key={key(p)}><dt>{p.product === "hub" ? `Geohub ${planName(p.product, p.plan)}` : planName(p.product, p.plan)}</dt><dd><strong className="num">{naira(p.amount_ngn)}</strong>
+            <span className="muted small"> a year · {naira(Number(p.amount_ngn) * 1.075)} with VAT{p.updated_by_name ? ` · set by ${p.updated_by_name}, ${day(p.updated_at)}` : ""}</span></dd></div>))}
         </dl>
       )}
     </section>

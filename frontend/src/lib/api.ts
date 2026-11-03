@@ -1,5 +1,5 @@
 import type { Account, AccountDetail, Activity, AuditEntry, Company, Contact, Deal, GeohubOrg, GeohubRequest, Home, Invoice, InvoiceDetail, InvoiceDraft,
-  LicencePlan, Price, Session, StaffBrief, StaffMember, Step, User } from "./types";
+  LicencePlan, Price, Product, Session, StaffBrief, StaffMember, Step, User } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public fields?: Record<string, string>, public code?: string) { super(message); }
@@ -121,7 +121,8 @@ export const api = {
   // invoices
   company: () => req<Company>("GET", "/company"),
   prices: () => req<Price[]>("GET", "/prices"),
-  setPrice: (plan: LicencePlan, amount_ngn: string) => req<Price>("PUT", `/prices/${plan}`, { amount_ngn }),
+  setPrice: (product: Product, plan: LicencePlan, amount_ngn: string) => req<Price>("PUT", `/prices/${product}/${plan}`, { amount_ngn }),
+  deletePrice: (product: Product, plan: LicencePlan) => req<void>("DELETE", `/prices/${product}/${plan}`),
   invoices: (f: { status?: string; account_id?: string; q?: string } = {}) => req<Invoice[]>("GET", `/invoices${q(f)}`),
   invoice: (id: string) => req<InvoiceDetail>("GET", `/invoices/${id}`),
   createInvoice: (b: InvoiceDraft) => req<InvoiceDetail>("POST", "/invoices", b),

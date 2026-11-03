@@ -77,4 +77,12 @@ export function invoiceTotals(lines: { quantity: string; unit_price_ngn: string 
 }
 
 export const INVOICE_STATUS: Record<string, string> = { draft: "Draft", issued: "Unpaid", paid: "Paid", void: "Void" };
-export const LICENCE_LABEL: Record<string, string> = { standard: "Organization Standard", advanced: "Organization Advanced" };
+export const PRODUCT_NAME: Record<string, string> = { hub: "Geohub", land: "Land Registry", check: "LandCheck", farm: "FarmScan" };
+export const PRODUCTS = ["hub", "land", "check", "farm"] as const;
+const PLAN_WORD: Record<string, string> = { standard: "Standard", advanced: "Advanced", custom: "Custom" };
+/** "Organization Standard" for Geohub, "Land Registry Standard" for the others, as the server names them. */
+export const planName = (product: string, plan: string) =>
+  product === "hub" ? (plan === "custom" ? "Geohub Custom" : `Organization ${PLAN_WORD[plan]}`) : `${PRODUCT_NAME[product]} ${PLAN_WORD[plan]}`;
+/** The licence's full name on an invoice: "Geohub Organization Standard", "FarmScan Advanced". */
+export const licenceTitle = (product: string, plan: string) =>
+  product === "hub" && plan !== "custom" ? `Geohub ${planName(product, plan)}` : planName(product, plan);

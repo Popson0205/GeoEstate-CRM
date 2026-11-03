@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { INVOICE_STATUS, day, naira2 } from "../lib/format";
+import { INVOICE_STATUS, PRODUCT_NAME, day, naira2 } from "../lib/format";
 import type { Invoice } from "../lib/types";
 
 export function InvoiceBadge({ i }: { i: Invoice }) {
@@ -21,7 +21,7 @@ export default function InvoiceTable({ items, showClient = true }: { items: Invo
           {items.map((i) => (
             <tr key={i.id} className={i.status === "void" ? "is-off" : undefined}>
               <td><Link to={`/invoices/${i.id}`}><strong>{i.number ?? "Draft"}</strong></Link>
-                {i.licence_plan && <><br /><span className="muted small">Geohub licence</span></>}</td>
+                {i.licence_plan && <><br /><span className="muted small">{PRODUCT_NAME[i.licence_product ?? "hub"]} licence</span></>}</td>
               {showClient && <td><Link to={`/clients/${i.account_id}`}>{i.account_name}</Link></td>}
               <td>{day(i.issue_date) || "—"}</td>
               <td className={i.overdue ? "late" : undefined}>{day(i.due_date) || "—"}</td>
