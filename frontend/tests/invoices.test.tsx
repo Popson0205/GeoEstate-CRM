@@ -34,7 +34,7 @@ group("invoice arithmetic", () => {
   });
 });
 
-it("a renewal invoice fills in the licence line and its dates from Geohub", async () => {
+it("one invoice for two products and training: each licence line fills in its price and dates from Geohub", async () => {
   const sent: any[] = [];
   const routes: Record<string, (b?: any) => unknown> = {
     "/me": () => ({ id: "u1", email: "f@geoestate.example", name: "Funke Ola", role: "account_manager", role_name: "Account manager", perms: ["invoices.edit"], mfa_enabled: true }),
@@ -58,9 +58,11 @@ it("a renewal invoice fills in the licence line and its dates from Geohub", asyn
     <Route path="/invoices/new" element={<InvoiceEditPage />} /><Route path="/invoices/:id" element={<p>The invoice</p>} />
   </Routes></ToastProvider></AuthProvider></MemoryRouter>);
 
-  expect(await screen.findByText(/Kano Agency is on Organization Standard \(active\) until 31 January 2027/)).toBeTruthy();
+  const add = await screen.findByRole("button", { name: "+ Add a product" });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
+  expect(await screen.findByText(/Now on Organization Standard \(active\) until 31 January 2027/)).toBeTruthy();
   expect((screen.getByLabelText("Product") as HTMLSelectElement).value).toBe("hub");
-  fireEvent.click(screen.getByRole("radio", { name: /Organization Standard/ }));
   const line = screen.getByLabelText("Line 1 description") as HTMLTextAreaElement;
   expect(line.value).toBe("Geohub Organization Standard licence, one year (1 February 2027 to 31 January 2028)");
   expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("750000");
@@ -69,21 +71,35 @@ it("a renewal invoice fills in the licence line and its dates from Geohub", asyn
   expect(within(totals).getByText(/806,250\.00/)).toBeTruthy();
 
   // Advanced instead: the same line changes; a later start moves the end and the words
-  fireEvent.click(screen.getByRole("radio", { name: /Organization Advanced/ }));
+  fireEvent.change(screen.getByLabelText("Plan"), { target: { value: "advanced" } });
   expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("1500000");
   fireEvent.change(screen.getByLabelText("From"), { target: { value: "2027-03-01" } });
   expect((screen.getByLabelText("To") as HTMLInputElement).value).toBe("2028-02-29");
   expect(line.value).toMatch(/Advanced licence, one year \(1 March 2027 to 29 February 2028\)/);
-  fireEvent.click(screen.getByRole("button", { name: "Add a line" }));
-  fireEvent.change(screen.getByLabelText("Line 2 description"), { target: { value: "Training day" } });
-  fireEvent.change(screen.getByLabelText("Line 2 unit price"), { target: { value: "50000" } });
-  expect(within(totals).getByText(/1,666,250\.00/)).toBeTruthy();
+
+  // a second product on the same invoice: FarmScan, renewing after its own licence; Geohub's line stays as it was
+  fireEvent.click(screen.getByRole("button", { name: "+ Add a product" }));
+  const second = screen.getAllByLabelText("Product")[1] as HTMLSelectElement;
+  expect([...second.options].map((o) => o.value)).not.toContain("hub");        // one licence per product
+  fireEvent.change(second, { target: { value: "farm" } });
+  expect(screen.getByText(/Now on FarmScan Standard \(active\) until 14 December 2026/)).toBeTruthy();
+  expect((screen.getByLabelText("Line 2 description") as HTMLTextAreaElement).value).toBe("FarmScan Standard licence, one year (15 December 2026 to 14 December 2027)");
+  expect((screen.getByLabelText("Line 2 unit price") as HTMLInputElement).value).toBe("400000");
+  expect(line.value).toMatch(/^Geohub Organization Advanced licence/);
+  // and training, typed in
+  fireEvent.click(screen.getByRole("button", { name: "+ Add a line" }));
+  fireEvent.change(screen.getByLabelText("Line 3 description"), { target: { value: "Training day" } });
+  fireEvent.change(screen.getByLabelText("Line 3 unit price"), { target: { value: "50000" } });
+  expect(within(totals).getByText(/2,096,250\.00/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText("Deal (optional)"), { target: { value: "d1" } });
   fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
   await waitFor(() => expect(screen.getByText("The invoice")).toBeTruthy());
-  expect(sent[0]).toEqual({ account_id: "a1", deal_id: "d1", notes: "", licence_product: "hub", licence_plan: "advanced", licence_starts: "2027-03-01", licence_ends: "2028-02-29",
-    lines: [{ description: "Geohub Organization Advanced licence, one year (1 March 2027 to 29 February 2028)", quantity: "1", unit_price_ngn: "1500000" },
-      { description: "Training day", quantity: "1", unit_price_ngn: "50000" }] });
+  expect(sent[0]).toEqual({ account_id: "a1", deal_id: "d1", notes: "", lines: [
+    { description: "Geohub Organization Advanced licence, one year (1 March 2027 to 29 February 2028)", quantity: "1", unit_price_ngn: "1500000",
+      licence_product: "hub", licence_plan: "advanced", licence_starts: "2027-03-01", licence_ends: "2028-02-29" },
+    { description: "FarmScan Standard licence, one year (15 December 2026 to 14 December 2027)", quantity: "1", unit_price_ngn: "400000",
+      licence_product: "farm", licence_plan: "standard", licence_starts: "2026-12-15", licence_ends: "2027-12-14" },
+    { description: "Training day", quantity: "1", unit_price_ngn: "50000", licence_product: null, licence_plan: null, licence_starts: null, licence_ends: null }] });
 });
 
 it("an invoice for another product prices and dates its own licence", async () => {
@@ -104,16 +120,21 @@ it("an invoice for another product prices and dates its own licence", async () =
   localStorage.setItem("crm.access", "token");
   render(<MemoryRouter initialEntries={["/invoices/new?client=a1"]}><AuthProvider><ToastProvider><Routes>
     <Route path="/invoices/new" element={<InvoiceEditPage />} /></Routes></ToastProvider></AuthProvider></MemoryRouter>);
-  await screen.findByText(/Kano Agency is on Organization Standard/);
+  const add = await screen.findByRole("button", { name: "+ Add a product" });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(add);
   fireEvent.change(screen.getByLabelText("Product"), { target: { value: "farm" } });
-  expect(await screen.findByText(/Kano Agency is on FarmScan Standard \(active\) until 14 December 2026/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: /FarmScan Standard/ }));
+  expect(await screen.findByText(/Now on FarmScan Standard \(active\) until 14 December 2026/)).toBeTruthy();
   expect((screen.getByLabelText("Line 1 description") as HTMLTextAreaElement).value).toBe("FarmScan Standard licence, one year (15 December 2026 to 14 December 2027)");
   expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("400000");
-  fireEvent.click(screen.getByRole("radio", { name: /FarmScan Advanced/ }));
+  fireEvent.change(screen.getByLabelText("Plan"), { target: { value: "advanced" } });
   expect(screen.getByText(/No price is set for FarmScan Advanced/)).toBeTruthy();
   expect((screen.getByLabelText("Line 1 unit price") as HTMLInputElement).value).toBe("");
   fireEvent.change(screen.getByLabelText("Product"), { target: { value: "land" } });
   expect(await screen.findByText(/does not have Land Registry yet/)).toBeTruthy();
   expect((screen.getByLabelText("Line 1 description") as HTMLTextAreaElement).value).toMatch(/^Land Registry Advanced licence, one year/);
+  // removing the product leaves an empty line to type into
+  fireEvent.click(screen.getByRole("button", { name: "Remove Land Registry" }));
+  expect(screen.getByText("No product on this invoice yet.")).toBeTruthy();
+  expect((screen.getByLabelText("Line 1 description") as HTMLTextAreaElement).value).toBe("");
 });

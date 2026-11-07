@@ -160,3 +160,12 @@ input[type="checkbox"], input[type="radio"] { width: auto; min-height: 0; accent
   .line { grid-template-columns: 1fr 1fr; } .line > .field:first-child { grid-column: 1 / -1; } .line-head { display: none; }
   .line > .num { padding-top: 0; }
 }
+
+/* the products on an invoice: one row each, with its plan and dates */
+.products { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.product-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(250px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) auto; gap: 10px; align-items: end;
+  padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.product-row .wide { grid-column: 1 / -1; margin: 0; }
+.tag { display: inline-block; align-self: flex-start; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-bottom: 4px;
+  background: var(--green-50); color: var(--green); }
+@media (max-width: 720px) { .product-row { grid-template-columns: 1fr 1fr; } .product-row > button { justify-self: start; } }

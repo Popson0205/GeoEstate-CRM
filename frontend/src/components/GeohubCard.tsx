@@ -16,7 +16,7 @@ export default function GeohubCard({ a, onChange }: { a: AccountDetail; onChange
   const [mode, setMode] = useState<"link" | "setup" | null>(null);
   const [choices, setChoices] = useState<GeohubOrg[] | null>(null);
   const [orgId, setOrgId] = useState("");
-  const paid = a.invoices.filter((i) => i.status === "paid" && i.licence_plan && (i.licence_product ?? "hub") === "hub");
+  const paid = a.invoices.filter((i) => i.status === "paid" && i.licence_plan && (i.licence_products?.length ? i.licence_products.includes("hub") : (i.licence_product ?? "hub") === "hub"));
   const [setup, setSetup] = useState({ kind: (paid.length ? "paid" : "demo") as "paid" | "demo", contact_id: a.contacts[0]?.id ?? "", invoice_id: paid[0]?.id ?? "" });
 
   useEffect(() => {

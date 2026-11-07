@@ -256,4 +256,44 @@ def test_an_invoice_for_another_product(client, boss, hire, hub):
     fin.post(f"/invoices/{x['id']}/payments", json={"amount_ngn": x["total_ngn"], "paid_on": date.today().isoformat()})
     contact = am.get(f"/accounts/{b['id']}").json()["contacts"][0]
     r = am.post(f"/accounts/{b['id']}/geohub/setup", json={"kind": "paid", "contact_id": contact["id"], "invoice_id": x["id"]})
-    assert r.status_code == 409 and "Set the organization up on Geohub first" in r.json()["detail"]
+    assert r.status_code == 409 and "set it up on Geohub first" in r.json()["detail"]
+
+
+def test_several_products_on_one_invoice(client, boss, hire, hub):
+    """Geohub, FarmScan and LandCheck on one invoice with a training line: each licence is switched on when it is paid,
+    Geohub's first, and a client set up on Geohub from the invoice gets the others straight after."""
+    am, fin = hire("account_manager"), hire("finance", "Femi Cash")
+    a = client_with_contact(am)
+    s = date.today()
+
+    def line(product, plan, price, desc=None):
+        return {"description": desc or f"{product} {plan}", "unit_price_ngn": price, "licence_product": product, **lic(plan, s)}
+    lines = [line("farm", "advanced", 1200000), line("hub", "standard", 750000), line("check", "standard", 300000),
+             {"description": "Training, two days on site", "quantity": 2, "unit_price_ngn": 150000}]
+    # a product twice, or a licence without its plan, is refused
+    bad = am.post("/invoices", json={"account_id": a["id"], "lines": lines + [line("farm", "standard", 1)]})
+    assert bad.status_code == 422 and "twice" in bad.json()["detail"]
+    half = {"description": "x", "unit_price_ngn": 1, "licence_product": "land"}
+    assert am.post("/invoices", json={"account_id": a["id"], "lines": [half]}).status_code == 422
+
+    inv = am.post("/invoices", json={"account_id": a["id"], "lines": lines}).json()
+    assert float(inv["subtotal_ngn"]) == 2550000 and inv["licence_products"] == ["farm", "hub", "check"]
+    assert inv["licence_product"] == "hub"                        # the summary is the Geohub licence
+    assert [l["licence_product"] for l in inv["lines"]] == ["farm", "hub", "check", None]
+    # removing one product from the draft keeps the others
+    kept = am.patch(f"/invoices/{inv['id']}", json={"lines": [lines[0], lines[1], lines[3]]}).json()
+    assert kept["licence_products"] == ["farm", "hub"]
+    inv = am.post(f"/invoices/{inv['id']}/issue", json={}).json()
+    assert am.get(f"/invoices/{inv['id']}/pdf").status_code == 200
+
+    # paid before the client is on Geohub: nothing can be switched on yet, and the payment is kept
+    paid = fin.post(f"/invoices/{inv['id']}/payments", json={"amount_ngn": inv["total_ngn"], "paid_on": date.today().isoformat()}).json()
+    assert paid["status"] == "paid" and paid["licence_applied_at"] is None and "not linked to Geohub" in paid["licence_error"]
+    # set up on Geohub from the invoice: Geohub's licence makes the organization, then FarmScan is added to it
+    contact = am.get(f"/accounts/{a['id']}").json()["contacts"][0]
+    r = am.post(f"/accounts/{a['id']}/geohub/setup", json={"kind": "paid", "contact_id": contact["id"], "invoice_id": inv["id"]})
+    assert r.status_code == 201, r.text
+    assert hub.calls[-1][2]["product"] == "farm" and hub.calls[-1][2]["plan"] == "advanced"
+    done = am.get(f"/invoices/{inv['id']}").json()
+    assert done["licence_applied_at"] and done["licence_error"] is None
+    assert all(l["licence_applied_at"] for l in done["lines"] if l["licence_product"])

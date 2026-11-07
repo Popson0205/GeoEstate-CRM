@@ -349,11 +349,17 @@ class LineIn(BaseModel):
     description: str = Field(min_length=1, max_length=500)
     quantity: Decimal = Field(Decimal(1), gt=0, max_digits=12, decimal_places=2)
     unit_price_ngn: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    licence_product: Product | None = Field(None, description="The product licence this line pays for, if any (one line per product)")
+    licence_plan: LicencePlan | None = None
+    licence_starts: date | None = None
+    licence_ends: date | None = None
 
 
 class LineOut(LineIn):
     id: UUID
     amount_ngn: Decimal
+    licence_applied_at: datetime | None = None
+    licence_error: str | None = None
 
 
 class InvoiceIn(BaseModel):
@@ -361,8 +367,9 @@ class InvoiceIn(BaseModel):
     deal_id: UUID | None = None
     lines: list[LineIn] = Field(min_length=1, max_length=50)
     notes: str = Field("", max_length=4000, description="Printed on the invoice")
-    licence_product: Product = Field("hub", description="The product whose licence this invoice pays for")
-    licence_plan: LicencePlan | None = Field(None, description="The licence this invoice pays for, switched on when it is paid")
+    licence_product: Product = Field("hub", description="Older form: one licence for the invoice, put on its first line. "
+                                                       "Give each line its own licence_* instead")
+    licence_plan: LicencePlan | None = Field(None, description="Older form, see licence_product")
     licence_starts: date | None = None
     licence_ends: date | None = None
 
@@ -431,6 +438,7 @@ class InvoiceOut(BaseModel):
     paid_ngn: Decimal
     balance_ngn: Decimal
     licence_product: Product = "hub"
+    licence_products: list[Product] = Field([], description="Every product licence on the invoice, in line order")
     licence_plan: LicencePlan | None
     licence_starts: date | None
     licence_ends: date | None

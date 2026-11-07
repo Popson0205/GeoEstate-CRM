@@ -5,7 +5,7 @@ import { Button, ErrorText, useAction } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PRODUCT_NAME, day, isoToday, licenceTitle, naira2, when } from "../lib/format";
-import type { GeohubOrg, InvoiceDetail } from "../lib/types";
+import type { GeohubOrg, InvoiceDetail, Line, Product } from "../lib/types";
 
 const METHOD: Record<string, string> = { bank_transfer: "Bank transfer", cash: "Cash", cheque: "Cheque", other: "Other" };
 
@@ -89,7 +89,7 @@ export default function InvoicePage() {
                     <div><strong className="num">{naira2(p.amount_ngn)}</strong> on {day(p.paid_on)}<br />
                       <span className="muted small">{[METHOD[p.method], p.reference, p.note, p.recorded_by_name && `recorded by ${p.recorded_by_name}`].filter(Boolean).join(" · ")}</span></div>
                     {can("payments.record") && <Button small variant="ghost" busy={busy === p.id} aria-label={`Remove the payment of ${naira2(p.amount_ngn)}`} onClick={() => {
-                      if (window.confirm(`Remove this payment of ${naira2(p.amount_ngn)}? The invoice will be unpaid again.${inv.licence_applied_at ? " The Geohub licence stays on: change it in Geohub's staff console if needed." : ""}`))
+                      if (window.confirm(`Remove this payment of ${naira2(p.amount_ngn)}? The invoice will be unpaid again.${inv.lines.some((l) => l.licence_applied_at) || inv.licence_applied_at ? " Licences already switched on stay on: change them in Geohub's staff console if needed." : ""}`))
                         void run(p.id, () => api.deletePayment(p.id), "Payment removed.").then((x) => x && setInv(x));
                     }}>Remove</Button>}
                   </li>
@@ -106,23 +106,40 @@ export default function InvoicePage() {
   );
 }
 
+/** The licences an invoice pays for: one per product line (older invoices kept theirs on the invoice). */
+export function licencesOf(inv: InvoiceDetail): Line[] {
+  const on = inv.lines.filter((l) => l.licence_product && l.licence_plan);
+  if (on.length || !inv.licence_plan) return on;
+  return [{ description: "", quantity: "1", unit_price_ngn: "0", licence_product: inv.licence_product, licence_plan: inv.licence_plan,
+    licence_starts: inv.licence_starts, licence_ends: inv.licence_ends, licence_applied_at: inv.licence_applied_at, licence_error: inv.licence_error }];
+}
+
 function Licence({ inv, org, onChange }: { inv: InvoiceDetail; org: GeohubOrg | null; onChange: (x: InvoiceDetail) => void }) {
   const { can } = useAuth();
   const { busy, run } = useAction();
+  const lic = licencesOf(inv);
+  const waiting = inv.status === "paid" && lic.some((l) => !l.licence_applied_at);
   return (
     <section className="card" aria-labelledby="lic-h">
-      <h2 id="lic-h">{PRODUCT_NAME[inv.licence_product]} licence</h2>
-      <p><strong>{licenceTitle(inv.licence_product, inv.licence_plan!)}</strong>, {day(inv.licence_starts)} to {day(inv.licence_ends)}</p>
-      {inv.licence_applied_at ? <p className="ok-text">Switched on in Geohub, {when(inv.licence_applied_at)}.</p>
-        : inv.status === "paid" ? <>
-          <p className="error">Not switched on yet. {inv.licence_error}</p>
-          <div className="actions">
-            {inv.geohub_org_id && can("payments.record") && <Button small variant="primary" busy={busy === "retry"}
-              onClick={() => void run("retry", () => api.retryLicence(inv.id, org?.status === "suspended"), "Done.").then((x) => x && onChange(x))}>Switch it on now</Button>}
-            {!inv.geohub_org_id && <Link className="btn btn-sm" to={`/clients/${inv.account_id}#geohub`}>Link or set up the client on Geohub</Link>}
-          </div>
-        </> : <p className="muted">Switched on when this invoice is paid in full{inv.geohub_org_id ? "." : ". The client is not linked to Geohub yet."}</p>}
-      {org && <NowOnGeohub org={org} product={inv.licence_product} />}
+      <h2 id="lic-h">{lic.length > 1 ? "Licences" : `${PRODUCT_NAME[lic[0].licence_product as Product]} licence`}</h2>
+      <ul className="contacts">
+        {lic.map((l) => (
+          <li key={l.licence_product}>
+            <div><strong>{licenceTitle(l.licence_product!, l.licence_plan!)}</strong>, {day(l.licence_starts!)} to {day(l.licence_ends!)}<br />
+              {l.licence_applied_at ? <span className="ok-text small">Switched on in Geohub, {when(l.licence_applied_at)}.</span>
+                : inv.status === "paid" ? <span className="error small">Not switched on yet. {l.licence_error}</span>
+                : <span className="muted small">Switched on when this invoice is paid in full.</span>}
+              {org && <NowOnGeohub org={org} product={l.licence_product!} />}</div>
+          </li>
+        ))}
+      </ul>
+      {inv.status !== "paid" && !inv.geohub_org_id && <p className="muted small">The client is not linked to Geohub yet.</p>}
+      {waiting && <div className="actions">
+        {inv.geohub_org_id && can("payments.record") && <Button small variant="primary" busy={busy === "retry"}
+          onClick={() => void run("retry", () => api.retryLicence(inv.id, org?.status === "suspended"), "Done.").then((x) => x && onChange(x))}>
+          Switch {lic.filter((l) => !l.licence_applied_at).length > 1 ? "them" : "it"} on now</Button>}
+        {!inv.geohub_org_id && <Link className="btn btn-sm" to={`/clients/${inv.account_id}#geohub`}>Link or set up the client on Geohub</Link>}
+      </div>}
     </section>
   );
 }
@@ -191,7 +208,7 @@ function PaymentForm({ inv, org, onDone, onCancel }: { inv: InvoiceDetail; org: 
       <div className="field"><label htmlFor="pay-ref">Bank reference</label><input id="pay-ref" value={p.reference} onChange={(e) => setP({ ...p, reference: e.target.value })} placeholder="From the bank alert" /></div>
       <div className="field wide"><label htmlFor="pay-note">Note (optional)</label><input id="pay-note" value={p.note} onChange={(e) => setP({ ...p, note: e.target.value })} /></div>
       {full && inv.licence_plan && <p className="wide small">{inv.geohub_org_id
-        ? `Paying in full switches on ${licenceTitle(inv.licence_product, inv.licence_plan)}, ${day(inv.licence_starts)} to ${day(inv.licence_ends)}.`
+        ? `Paying in full switches on ${licencesOf(inv).map((l) => `${licenceTitle(l.licence_product!, l.licence_plan!)} (${day(l.licence_starts!)} to ${day(l.licence_ends!)})`).join(", ")}.`
         : "Paying in full marks it paid. This client is not on Geohub yet: set it up from the client's page afterwards."}</p>}
       {full && org?.status === "suspended" && <label className="check wide"><input type="checkbox" checked={p.lift_suspension} onChange={(e) => setP({ ...p, lift_suspension: e.target.checked })} />
         Also lift the client's suspension on Geohub{org.suspended_reason ? ` (${org.suspended_reason})` : ""}</label>}
