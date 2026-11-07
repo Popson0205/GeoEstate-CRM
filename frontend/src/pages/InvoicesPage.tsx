@@ -5,7 +5,7 @@ import { Button, ErrorText, useAction } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PRODUCTS, PRODUCT_NAME, day, naira, naira2, planName } from "../lib/format";
-import type { Invoice, LicencePlan, Price, Product } from "../lib/types";
+import type { Invoice, LicencePlan, Price, Product, Terms } from "../lib/types";
 
 const FILTERS = [["unpaid", "Unpaid"], ["overdue", "Overdue"], ["draft", "Drafts"], ["paid", "Paid"], ["void", "Void"], ["", "All"]] as const;
 
@@ -42,11 +42,49 @@ export default function InvoicesPage() {
         </>
       )}
       <Prices />
+      <TermsCard />
     </div>
   );
 }
 
 /** What a year of each product's plans costs; super admins set them. */
+const FILL: Record<string, string> = { number: "GE-2026-0001", issue_date: "7 November 2026", due_date: "21 November 2026",
+  company: "the company", email: "the company email" };
+const filled = (body: string) => body.replace(/\{(number|issue_date|due_date|company|email)\}/g, (_, k: string) => FILL[k]);
+
+/** The terms and conditions printed on every invoice. Invoices already issued keep the terms they went out with. */
+function TermsCard() {
+  const { can } = useAuth();
+  const { busy, run } = useAction();
+  const [terms, setTerms] = useState<Terms | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => void api.terms().then(setTerms, () => setTerms(null)), []);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const t = await run("terms", () => api.setTerms(draft!), "Terms saved. They print on drafts and on invoices issued from now on.");
+    if (t) { setTerms(t); setDraft(null); }
+  }
+  return (
+    <section className="card" style={{ marginTop: 18 }} aria-labelledby="terms-h">
+      <div className="head"><h2 id="terms-h">Terms and conditions</h2>
+        {can("prices.edit") && terms && draft === null && <div className="actions"><Button small onClick={() => setDraft(terms.body)}>Change</Button></div>}</div>
+      <p className="muted small">Printed at the end of every invoice. An issued invoice keeps the terms it was sent with, so a change here applies to
+        drafts and to invoices issued from now on.{terms?.updated_by_name ? ` Last changed by ${terms.updated_by_name}, ${day(terms.updated_at)}.` : ""}</p>
+      {draft !== null ? (
+        <form onSubmit={save} className="stack">
+          <div className="field"><label htmlFor="terms-body">One paragraph per line</label>
+            <textarea id="terms-body" rows={14} maxLength={8000} required value={draft} onChange={(e) => setDraft(e.target.value)} /></div>
+          <p className="muted small">On each invoice, <code>{"{number}"}</code>, <code>{"{issue_date}"}</code>, <code>{"{due_date}"}</code>,
+            {" "}<code>{"{company}"}</code> and <code>{"{email}"}</code> become that invoice's number and dates and GeoEstate's name and email.</p>
+          <div className="actions"><Button type="submit" variant="primary" busy={busy === "terms"}>Save terms</Button>
+            <Button variant="ghost" onClick={() => setDraft(null)}>Cancel</Button></div>
+        </form>
+      ) : terms ? <ol className="terms">{filled(terms.body).split("\n").filter((l) => l.trim()).map((l, i) => <li key={i}>{l.replace(/^\d+\.\s*/, "")}</li>)}</ol>
+        : <p className="muted">No terms are set.</p>}
+    </section>
+  );
+}
+
 function Prices() {
   const { can } = useAuth();
   const { busy, run } = useAction();

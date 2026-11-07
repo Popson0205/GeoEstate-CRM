@@ -16,7 +16,7 @@ const WORDS: Record<string, string> = {
   "auth.recovery_codes": "made new recovery codes",
   "invoice.create": "started an invoice", "invoice.delete": "deleted a draft invoice", "invoice.issue": "issued invoice",
   "invoice.email": "emailed invoice", "invoice.void": "voided invoice", "invoice.licence": "switched on the licence for invoice",
-  "payment.record": "recorded a payment on", "payment.delete": "removed a payment from", "price.update": "changed the price of", "price.delete": "removed the price of",
+  "payment.record": "recorded a payment on", "payment.delete": "removed a payment from", "price.update": "changed the price of", "price.delete": "removed the price of", "terms.update": "changed the invoice terms and conditions",
   "geohub.import": "brought clients in from Geohub", "geohub.link": "linked a client to Geohub", "geohub.unlink": "unlinked a client from Geohub",
   "geohub.setup": "set up a client on Geohub",
 };

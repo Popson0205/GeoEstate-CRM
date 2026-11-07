@@ -1,5 +1,6 @@
 """The invoice as an A4 PDF: GeoEstate's logo and details, the client, the lines, VAT, the amount in words, the bank
 details for the transfer, and a PAID / VOID / DRAFT mark."""
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -59,6 +60,7 @@ def render(inv: dict) -> bytes:
         "th": ParagraphStyle("th", fontName="Plex-Semi", fontSize=8, leading=10, textColor=colors.white),
         "thr": ParagraphStyle("thr", fontName="Plex-Semi", fontSize=8, leading=10, textColor=colors.white, alignment=TA_RIGHT),
         "cellr": ParagraphStyle("cellr", fontName="Plex", fontSize=9, leading=12, textColor=INK, alignment=TA_RIGHT),
+        "small": ParagraphStyle("small", fontName="Plex", fontSize=7.5, leading=10, textColor=MUTED, spaceAfter=2.5),
     }
     P = lambda text, style="body": Paragraph(text, s[style])          # noqa: E731
     e = lambda x: escape(str(x or ""))                                # noqa: E731
@@ -172,6 +174,17 @@ def render(inv: dict) -> bytes:
         story.append(KeepTogether([pt, Spacer(1, 2.5 * mm), after]))
     if inv.get("notes"):
         story += [Spacer(1, 6 * mm), P("NOTES", "label"), P(e(inv["notes"]).replace("\n", "<br/>"))]
+    if inv.get("terms"):
+        fill = {"number": inv["number"] or "the invoice number", "issue_date": long_date(inv["issue_date"]) or "the date of issue",
+                "due_date": long_date(inv["due_date"]) or "the due date", "company": settings.company_name, "email": settings.company_email}
+        text = inv["terms"]
+        for k, v in fill.items():
+            text = text.replace("{" + k + "}", v)
+        def term(line: str):                              # "4. Licences. Each ..." -> the heading in bold
+            m = re.match(r"^(\d+\.\s*[^.]{1,40}\.)(\s.*)$", line.strip())
+            return P(f"<b>{e(m.group(1))}</b>{e(m.group(2))}" if m else e(line), "small")
+        terms = [P("TERMS AND CONDITIONS", "label")] + [term(line) for line in text.splitlines() if line.strip()]
+        story += [Spacer(1, 7 * mm), KeepTogether(terms) if len(terms) < 14 else terms[0]] + ([] if len(terms) < 14 else terms[1:])
 
     mark = {"paid": ("PAID", GREEN), "void": ("VOID", colors.HexColor("#b3261e")), "draft": ("DRAFT", MUTED)}.get(status)
 
