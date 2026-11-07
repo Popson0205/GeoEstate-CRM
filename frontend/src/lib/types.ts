@@ -44,21 +44,23 @@ export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
 export interface Price { product: Product; plan: LicencePlan; name: string; amount_ngn: string; updated_at: string; updated_by_name: string | null }
 export interface Company { name: string; address: string; rc: string; tin: string; email: string; phone: string; bank_name: string;
   bank_account_name: string; bank_account_number: string; vat_rate: number; due_days: number }
-export interface Line { id?: string; description: string; quantity: string; unit_price_ngn: string; amount_ngn?: string }
+/** A line of an invoice. A line can pay for one product's licence (one line per product); one without is a service, e.g. training. */
+export interface Line { id?: string; description: string; quantity: string; unit_price_ngn: string; amount_ngn?: string;
+  licence_product?: Product | null; licence_plan?: LicencePlan | null; licence_starts?: string | null; licence_ends?: string | null;
+  licence_applied_at?: string | null; licence_error?: string | null }
 export interface Payment { id: string; invoice_id: string; amount_ngn: string; paid_on: string; method: string; reference: string; note: string;
   recorded_by_name: string | null; created_at: string }
 export interface Invoice {
   id: string; number: string | null; account_id: string; account_name: string; deal_id: string | null; deal_title: string | null;
   status: InvoiceStatus; overdue: boolean; issue_date: string | null; due_date: string | null; vat_rate: string;
   subtotal_ngn: string; vat_ngn: string; total_ngn: string; paid_ngn: string; balance_ngn: string;
-  licence_product: Product; licence_plan: LicencePlan | null; licence_starts: string | null; licence_ends: string | null; licence_applied_at: string | null;
+  licence_product: Product; licence_products?: Product[]; licence_plan: LicencePlan | null; licence_starts: string | null; licence_ends: string | null; licence_applied_at: string | null;
   licence_error: string | null; emailed_at: string | null; emailed_to: string | null; paid_at: string | null; voided_at: string | null;
   void_reason: string | null; created_by_name: string | null; created_at: string;
 }
 export interface BillTo { name: string; address: string[]; email: string; phone: string; tin: string; contact: string | null }
 export interface InvoiceDetail extends Invoice { lines: Line[]; payments: Payment[]; bill_to: BillTo; notes: string; geohub_org_id: string | null }
-export interface InvoiceDraft { account_id: string; deal_id?: string | null; lines: Line[]; notes: string; licence_product: Product; licence_plan: LicencePlan | null;
-  licence_starts: string | null; licence_ends: string | null }
+export interface InvoiceDraft { account_id: string; deal_id?: string | null; lines: Line[]; notes: string }
 export interface GeohubOrg {
   id: string; name: string; plan: string; plan_name: string; licence_kind: "paid" | "demo"; status: string; status_name: string;
   subscription_starts: string | null; subscription_ends: string | null; grace_ends: string | null; suspended_reason: string | null;

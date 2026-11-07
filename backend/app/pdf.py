@@ -67,8 +67,7 @@ def render(inv: dict) -> bytes:
 
     # ---- header: logo and GeoEstate | INVOICE, number and dates ----
     logo = Image(str(ASSETS / "logo.png"), width=24 * mm, height=24 * mm)
-    company = [P(f"<b>{e(settings.company_name)}</b>", "strong"), P(e(settings.company_address), "muted"),
-               P(f"RC {e(settings.company_rc)} · TIN {e(settings.company_tin)}", "muted")]
+    company = [P(f"<b>{e(settings.company_name)}</b>", "strong"), P(f"RC {e(settings.company_rc)} · TIN {e(settings.company_tin)}", "muted")]
     contact = " · ".join(x for x in (settings.company_email, settings.company_phone) if x)
     if contact:
         company.append(P(e(contact), "muted"))
@@ -99,10 +98,17 @@ def render(inv: dict) -> bytes:
     if b.get("tin"):
         bill.append(P(f"TIN {e(b['tin'])}", "muted"))
     right = []
-    if inv.get("licence_plan"):
-        right = [P("LICENCE", "label"), P(f"<b>{e(licence_title(inv.get('licence_product') or 'hub', inv['licence_plan']))}</b>", "strong"),
-                 P(f"{e(long_date(inv['licence_starts']))} to {e(long_date(inv['licence_ends']))}"),
-                 P("Switched on by this payment." if status == "paid" else "Switched on when this invoice is paid.", "muted")]
+    lic = [l for l in inv["lines"] if l.get("licence_plan")]
+    if not lic and inv.get("licence_plan"):                    # an invoice made before licences moved onto lines
+        lic = [{k: inv.get(k) for k in ("licence_product", "licence_plan", "licence_starts", "licence_ends")}]
+    if lic:
+        right = [P("LICENCES" if len(lic) > 1 else "LICENCE", "label")]
+        for l in lic:
+            right += [P(f"<b>{e(licence_title(l.get('licence_product') or 'hub', l['licence_plan']))}</b>", "strong"),
+                      P(f"{e(long_date(l['licence_starts']))} to {e(long_date(l['licence_ends']))}")]
+        right.append(P(("Switched on by this payment." if status == "paid" else "Switched on when this invoice is paid.")
+                       if len(lic) == 1 else ("All switched on by this payment." if status == "paid" else
+                                              "All switched on when this invoice is paid."), "muted"))
     meta = Table([[bill, right]], colWidths=[width * 0.58, width * 0.42])
     meta.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     story += [meta, Spacer(1, 7 * mm)]
@@ -173,8 +179,13 @@ def render(inv: dict) -> bytes:
         canvas.saveState()
         canvas.setFont("Plex", 7.5)
         canvas.setFillColor(MUTED)
-        canvas.drawString(18 * mm, 12 * mm, f"{settings.company_name} · RC {settings.company_rc} · TIN {settings.company_tin}")
-        canvas.drawRightString(A4[0] - 18 * mm, 12 * mm, f"{inv['number'] or 'Draft'} · page {doc.page}")
+        canvas.setStrokeColor(RULE)
+        canvas.setLineWidth(0.5)
+        canvas.line(18 * mm, 16.5 * mm, A4[0] - 18 * mm, 16.5 * mm)
+        canvas.drawString(18 * mm, 12.5 * mm, " · ".join(x for x in (settings.company_name, settings.company_address) if x))
+        canvas.drawString(18 * mm, 9 * mm, " · ".join(x for x in (f"RC {settings.company_rc}", f"TIN {settings.company_tin}",
+                                                                 settings.company_email, settings.company_phone) if x))
+        canvas.drawRightString(A4[0] - 18 * mm, 12.5 * mm, f"{inv['number'] or 'Draft'} · page {doc.page}")
         canvas.setStrokeColor(NAVY)
         canvas.setLineWidth(3)
         canvas.line(0, A4[1] - 1.5, A4[0], A4[1] - 1.5)

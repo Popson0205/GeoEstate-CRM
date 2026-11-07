@@ -23,7 +23,9 @@ router = APIRouter(tags=["invoices"])
 INVOICE_SQL = (
     "SELECT i.*, a.name AS account_name, a.geohub_org_id, d.title AS deal_title, u.name AS created_by_name, "
     "  COALESCE((SELECT sum(p.amount_ngn) FROM payments p WHERE p.invoice_id = i.id), 0) AS paid_ngn, "
-    "  (i.status = 'issued' AND i.due_date < current_date) AS overdue "
+    "  (i.status = 'issued' AND i.due_date < current_date) AS overdue, "
+    "  COALESCE((SELECT array_agg(l.licence_product ORDER BY l.position) FROM invoice_lines l "
+    "            WHERE l.invoice_id = i.id AND l.licence_product IS NOT NULL), '{}') AS licence_products "
     "FROM invoices i JOIN accounts a ON a.id = i.account_id LEFT JOIN deals d ON d.id = i.deal_id "
     "LEFT JOIN users u ON u.id = i.created_by ")
 
@@ -45,7 +47,8 @@ async def _get(conn, invoice_id, lock: bool = False) -> dict:
 
 async def _detail(conn, invoice_id) -> dict:
     inv = await _get(conn, invoice_id)
-    cur = await conn.execute("SELECT id, description, quantity, unit_price_ngn, amount_ngn FROM invoice_lines "
+    cur = await conn.execute("SELECT id, description, quantity, unit_price_ngn, amount_ngn, licence_product, licence_plan, "
+                             "licence_starts, licence_ends, licence_applied_at, licence_error FROM invoice_lines "
                              "WHERE invoice_id = %s ORDER BY position", (invoice_id,))
     inv["lines"] = await cur.fetchall()
     cur = await conn.execute("SELECT p.*, u.name AS recorded_by_name FROM payments p LEFT JOIN users u ON u.id = p.recorded_by "
@@ -76,15 +79,41 @@ def _licence_ok(plan, starts, ends) -> None:
         raise Problem(422, "The licence cannot end before it starts.", code="validation", fields={"licence_ends": ["before start"]})
 
 
+def _lines_ok(lines: list[dict]) -> None:
+    """Each line's licence is whole (product, plan, from and to) or absent, and a product appears on one line only."""
+    seen = set()
+    for n, l in enumerate(lines, 1):
+        if not l.get("licence_product") and not l.get("licence_plan"):
+            l.update(licence_product=None, licence_plan=None, licence_starts=None, licence_ends=None)
+            continue
+        if not (l.get("licence_product") and l.get("licence_plan")):
+            raise Problem(422, f"Line {n}: choose both the product and its plan.", code="validation", fields={"lines": [f"{n}: plan"]})
+        _licence_ok(l["licence_plan"], l.get("licence_starts"), l.get("licence_ends"))
+        if l["licence_product"] in seen:
+            raise Problem(422, f"{invoicing.PRODUCTS[l['licence_product']]} is on the invoice twice. One licence per product.",
+                          code="validation", fields={"lines": [f"{n}: twice"]})
+        seen.add(l["licence_product"])
+
+
+def _legacy(lines: list[dict], product, plan, starts, ends) -> list[dict]:
+    """The older form, one licence for the whole invoice: it goes on the first line, if no line has one already."""
+    if plan and not any(l.get("licence_plan") for l in lines):
+        lines[0] |= {"licence_product": product or "hub", "licence_plan": plan, "licence_starts": starts, "licence_ends": ends}
+    return lines
+
+
 async def _write_lines(conn, invoice_id, lines: list[dict], vat_rate) -> None:
+    _lines_ok(lines)
     t = invoicing.totals(lines, vat_rate)
     await conn.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", (invoice_id,))
     for i, (l, amount) in enumerate(zip(lines, t["amounts"])):
-        await conn.execute("INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_ngn, amount_ngn) "
-                           "VALUES (%s, %s, %s, %s, %s, %s)",
-                           (invoice_id, i, l["description"].strip(), l["quantity"], l["unit_price_ngn"], amount))
+        await conn.execute("INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_ngn, amount_ngn, "
+                           "licence_product, licence_plan, licence_starts, licence_ends) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                           (invoice_id, i, l["description"].strip(), l["quantity"], l["unit_price_ngn"], amount,
+                            l["licence_product"], l["licence_plan"], l["licence_starts"], l["licence_ends"]))
     await conn.execute("UPDATE invoices SET subtotal_ngn = %s, vat_ngn = %s, total_ngn = %s, updated_at = now() WHERE id = %s",
                        (t["subtotal_ngn"], t["vat_ngn"], t["total_ngn"], invoice_id))
+    await invoicing.sync_licence_summary(conn, invoice_id)
 
 
 # ---------- what GeoEstate prints, and the price list ----------
@@ -160,14 +189,12 @@ async def create_invoice(body: InvoiceIn, user=Depends(require("invoices.edit"))
     if not await cur.fetchone():
         raise Problem(422, "Choose a client.", code="validation", fields={"account_id": ["not found"]})
     await _deal_ok(conn, body.deal_id, body.account_id)
-    _licence_ok(body.licence_plan, body.licence_starts, body.licence_ends)
-    cur = await conn.execute(
-        "INSERT INTO invoices (account_id, deal_id, vat_rate, notes, licence_product, licence_plan, licence_starts, licence_ends, created_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (body.account_id, body.deal_id, settings.vat_rate, body.notes.strip(), body.licence_product, body.licence_plan,
-         body.licence_starts if body.licence_plan else None, body.licence_ends if body.licence_plan else None, user["id"]))
+    lines = _legacy([l.model_dump() for l in body.lines], body.licence_product, body.licence_plan, body.licence_starts, body.licence_ends)
+    _lines_ok(lines)
+    cur = await conn.execute("INSERT INTO invoices (account_id, deal_id, vat_rate, notes, created_by) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                             (body.account_id, body.deal_id, settings.vat_rate, body.notes.strip(), user["id"]))
     iid = (await cur.fetchone())["id"]
-    await _write_lines(conn, iid, [l.model_dump() for l in body.lines], settings.vat_rate)
+    await _write_lines(conn, iid, lines, settings.vat_rate)
     await audit(conn, "invoice.create", actor_id=user["id"], target_type="invoice", target_id=iid, account_id=str(body.account_id))
     return await _detail(conn, iid)
 
@@ -187,19 +214,31 @@ async def update_invoice(invoice_id: UUID, body: InvoicePatch, user=Depends(requ
         await conn.execute("UPDATE invoices SET deal_id = %s WHERE id = %s", (body.deal_id, invoice_id))
     if "notes" in data and body.notes is not None:
         await conn.execute("UPDATE invoices SET notes = %s WHERE id = %s", (body.notes.strip(), invoice_id))
-    if body.clear_licence:
-        await conn.execute("UPDATE invoices SET licence_plan = NULL, licence_starts = NULL, licence_ends = NULL WHERE id = %s",
-                           (invoice_id,))
-    elif {"licence_product", "licence_plan", "licence_starts", "licence_ends"} & set(data):
-        plan = data.get("licence_plan", inv["licence_plan"])
-        product = data.get("licence_product") or inv["licence_product"]
-        await conn.execute("UPDATE invoices SET licence_product = %s WHERE id = %s", (product, invoice_id))
-        starts, ends = data.get("licence_starts", inv["licence_starts"]), data.get("licence_ends", inv["licence_ends"])
-        _licence_ok(plan, starts, ends)
-        await conn.execute("UPDATE invoices SET licence_plan = %s, licence_starts = %s, licence_ends = %s WHERE id = %s",
-                           (plan, starts, ends, invoice_id))
+    old = "licence_product, licence_plan, licence_starts, licence_ends"
     if body.lines is not None:
-        await _write_lines(conn, invoice_id, [l.model_dump() for l in body.lines], inv["vat_rate"])
+        lines = [l.model_dump() for l in body.lines]
+        if not body.clear_licence and not any(l["licence_plan"] for l in lines) and inv["licence_plan"]:
+            # the older form sends lines without licences: the invoice keeps the one it has, on its first line
+            lines = _legacy(lines, inv["licence_product"], inv["licence_plan"], inv["licence_starts"], inv["licence_ends"])
+    else:
+        cur = await conn.execute(f"SELECT description, quantity, unit_price_ngn, {old} FROM invoice_lines WHERE invoice_id = %s "
+                                 "ORDER BY position", (invoice_id,))
+        lines = await cur.fetchall()
+    if body.clear_licence:
+        for l in lines:
+            l.update(licence_product=None, licence_plan=None, licence_starts=None, licence_ends=None)
+    elif {"licence_product", "licence_plan", "licence_starts", "licence_ends"} & set(data):
+        # the older form: change the invoice's licence, which lives on its (first) licence line
+        target = next((l for l in lines if l.get("licence_plan")), None)
+        if target is None:
+            lines = _legacy(lines, data.get("licence_product") or "hub", data.get("licence_plan"), data.get("licence_starts"),
+                            data.get("licence_ends"))
+        else:
+            for k in ("licence_product", "licence_plan", "licence_starts", "licence_ends"):
+                if data.get(k) is not None:
+                    target[k] = data[k]
+    if body.lines is not None or body.clear_licence or {"licence_product", "licence_plan", "licence_starts", "licence_ends"} & set(data):
+        await _write_lines(conn, invoice_id, lines, inv["vat_rate"])
     await conn.execute("UPDATE invoices SET updated_at = now() WHERE id = %s", (invoice_id,))
     return await _detail(conn, invoice_id)
 
@@ -335,11 +374,11 @@ async def delete_payment(payment_id: UUID, user=Depends(require("payments.record
 
 
 @router.post("/invoices/{invoice_id}/licence", response_model=InvoiceDetail,
-             summary="Try again to switch on a paid invoice's Geohub licence")
+             summary="Try again to switch on a paid invoice's licences that are not on yet")
 async def retry_licence(invoice_id: UUID, lift_suspension: bool = False, user=Depends(require("payments.record")),
                         conn=Depends(get_conn)):
     inv = await _get(conn, invoice_id, lock=True)
-    if inv["status"] != "paid" or not inv["licence_plan"]:
+    if inv["status"] != "paid" or not inv["licence_products"]:
         raise Problem(409, "Only a paid invoice with a licence can switch one on.", code="not_paid")
     if inv["licence_applied_at"]:
         return await _detail(conn, invoice_id)

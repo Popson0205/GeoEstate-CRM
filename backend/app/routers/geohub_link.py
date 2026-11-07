@@ -183,19 +183,23 @@ async def setup(account_id: UUID, body: SetupIn, user=Depends(require("geohub.li
         inv = await cur.fetchone()
         if not inv or inv["status"] != "paid" or not inv["licence_plan"]:
             raise Problem(409, "That invoice is not paid, or has no licence on it.", code="not_paid")
-        if inv["licence_product"] != "hub":
-            raise Problem(409, f"Invoice {inv['number']} is for {invoicing.PRODUCTS[inv['licence_product']]}, which is added to an "
-                               "organization that is already on Geohub. Set the organization up on Geohub first (a Geohub licence or "
-                               "a demo), then switch this licence on from the invoice.", code="not_hub")
-        payload |= {"plan": inv["licence_plan"], "subscription_starts": inv["licence_starts"].isoformat(),
-                    "subscription_ends": inv["licence_ends"].isoformat(), "invoice_ref": inv["number"]}
+        cur = await conn.execute("SELECT id, licence_plan, licence_starts, licence_ends FROM invoice_lines "
+                                 "WHERE invoice_id = %s AND licence_product = 'hub'", (inv["id"],))
+        hub_line = await cur.fetchone()
+        if not hub_line:
+            raise Problem(409, f"Invoice {inv['number']} has no Geohub licence. Its other products are added to an organization "
+                               "that is already on Geohub: set it up on Geohub first (a Geohub licence or a demo), then switch "
+                               "them on from the invoice.", code="not_hub")
+        payload |= {"plan": hub_line["licence_plan"], "subscription_starts": hub_line["licence_starts"].isoformat(),
+                    "subscription_ends": hub_line["licence_ends"].isoformat(), "invoice_ref": inv["number"]}
     if a["geohub_request_id"]:
         payload["request_id"] = str(a["geohub_request_id"])
     org = await geohub.must("POST", "/orgs", json=payload)
     await conn.execute("UPDATE accounts SET geohub_org_id = %s, status = CASE WHEN %s THEN 'customer' ELSE status END, "
                        "updated_at = now() WHERE id = %s", (org["id"], body.kind == "paid", account_id))
     if inv:
-        await conn.execute("UPDATE invoices SET licence_applied_at = now(), licence_error = NULL WHERE id = %s", (inv["id"],))
+        await conn.execute("UPDATE invoice_lines SET licence_applied_at = now(), licence_error = NULL WHERE id = %s", (hub_line["id"],))
+        await invoicing.apply_licence(conn, inv, user["name"])       # the invoice's other products, now that the organization exists
     else:
         await conn.execute("UPDATE deals SET stage = 'demo', updated_at = now() WHERE account_id = %s AND plan = 'demo' "
                            "AND stage IN ('new','contacted')", (account_id,))

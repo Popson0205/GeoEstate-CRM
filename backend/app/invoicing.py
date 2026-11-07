@@ -76,29 +76,54 @@ async def bill_to(conn, account_id) -> dict:
             "contact": c and (c["name"] + (f", {c['title']}" if c["title"] else ""))}
 
 
+async def sync_licence_summary(conn, invoice_id) -> None:
+    """The invoice's own licence_* columns sum up its licence lines: the Geohub one first, else the first; switched on
+    when every one is; the errors of those that are not."""
+    cur = await conn.execute("SELECT licence_product, licence_plan, licence_starts, licence_ends, licence_applied_at, licence_error "
+                             "FROM invoice_lines WHERE invoice_id = %s AND licence_product IS NOT NULL "
+                             "ORDER BY (licence_product = 'hub') DESC, position", (invoice_id,))
+    rows = await cur.fetchall()
+    first = rows[0] if rows else {}
+    done = bool(rows) and all(r["licence_applied_at"] for r in rows)
+    errors = " ".join(f"{PRODUCTS[r['licence_product']]}: {r['licence_error']}" if len(rows) > 1 else r["licence_error"]
+                      for r in rows if r["licence_error"] and not r["licence_applied_at"]) or None
+    await conn.execute("UPDATE invoices SET licence_product = %s, licence_plan = %s, licence_starts = %s, licence_ends = %s, "
+                       "licence_applied_at = %s, licence_error = %s WHERE id = %s",
+                       (first.get("licence_product") or "hub", first.get("licence_plan"), first.get("licence_starts"),
+                        first.get("licence_ends"), max(r["licence_applied_at"] for r in rows) if done else None, errors, invoice_id))
+
+
 async def apply_licence(conn, inv: dict, staff_name: str, lift_suspension: bool = False) -> None:
-    """Switch on the licence a paid invoice buys, and note how it went on the invoice. Never raises: the payment is
-    kept either way, and staff can try again from the invoice."""
-    if not inv["licence_plan"] or inv["licence_applied_at"]:
+    """Switch on every licence a paid invoice buys that is not on yet (Geohub's first, as the others hang off the
+    organization), and note how each went on its line. Never raises: the payment is kept either way, and staff can try
+    again from the invoice."""
+    cur = await conn.execute("SELECT id, licence_product, licence_plan, licence_starts, licence_ends FROM invoice_lines "
+                             "WHERE invoice_id = %s AND licence_product IS NOT NULL AND licence_applied_at IS NULL "
+                             "ORDER BY (licence_product = 'hub') DESC, position", (inv["id"],))
+    todo = await cur.fetchall()
+    if not todo:
+        await sync_licence_summary(conn, inv["id"])
         return
     cur = await conn.execute("SELECT geohub_org_id FROM accounts WHERE id = %s", (inv["account_id"],))
     org_id = (await cur.fetchone())["geohub_org_id"]
-    error = None
-    if not org_id:
-        error = ("This client is not linked to Geohub yet. Link it to its organization (or set one up) on the client's "
-                 "page, then switch on the licence from this invoice.")
-    else:
-        try:
-            await geohub.call("POST", f"/orgs/{org_id}/licence", json={
-                "product": inv["licence_product"], "plan": inv["licence_plan"], "subscription_starts": inv["licence_starts"].isoformat(),
-                "subscription_ends": inv["licence_ends"].isoformat(), "invoice_ref": inv["number"],
-                "staff_name": staff_name, "lift_suspension": lift_suspension})
-        except geohub.GeohubError as e:
-            error = str(e)
-    if error:
-        await conn.execute("UPDATE invoices SET licence_error = %s WHERE id = %s", (error, inv["id"]))
-    else:
-        await conn.execute("UPDATE invoices SET licence_applied_at = now(), licence_error = NULL WHERE id = %s", (inv["id"],))
+    for line in todo:
+        error = None
+        if not org_id:
+            error = ("This client is not linked to Geohub yet. Link it to its organization (or set one up) on the client's "
+                     "page, then switch on the licence from this invoice.")
+        else:
+            try:
+                await geohub.call("POST", f"/orgs/{org_id}/licence", json={
+                    "product": line["licence_product"], "plan": line["licence_plan"],
+                    "subscription_starts": line["licence_starts"].isoformat(), "subscription_ends": line["licence_ends"].isoformat(),
+                    "invoice_ref": inv["number"], "staff_name": staff_name, "lift_suspension": lift_suspension})
+            except geohub.GeohubError as e:
+                error = str(e)
+        if error:
+            await conn.execute("UPDATE invoice_lines SET licence_error = %s WHERE id = %s", (error, line["id"]))
+        else:
+            await conn.execute("UPDATE invoice_lines SET licence_applied_at = now(), licence_error = NULL WHERE id = %s", (line["id"],))
+    await sync_licence_summary(conn, inv["id"])
 
 
 # ---------- the amount in words, as Nigerian invoices print it ----------
