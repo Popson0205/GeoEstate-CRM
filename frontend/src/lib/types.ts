@@ -59,7 +59,9 @@ export interface Invoice {
   void_reason: string | null; created_by_name: string | null; created_at: string;
 }
 export interface BillTo { name: string; address: string[]; email: string; phone: string; tin: string; contact: string | null }
-export interface InvoiceDetail extends Invoice { lines: Line[]; payments: Payment[]; bill_to: BillTo; notes: string; geohub_org_id: string | null }
+export interface InvoiceDetail extends Invoice { lines: Line[]; payments: Payment[]; bill_to: BillTo; notes: string; geohub_org_id: string | null; terms?: string | null }
+/** The terms and conditions printed on invoices. */
+export interface Terms { body: string; updated_at: string; updated_by_name: string | null }
 export interface InvoiceDraft { account_id: string; deal_id?: string | null; lines: Line[]; notes: string }
 export interface GeohubOrg {
   id: string; name: string; plan: string; plan_name: string; licence_kind: "paid" | "demo"; status: string; status_name: string;

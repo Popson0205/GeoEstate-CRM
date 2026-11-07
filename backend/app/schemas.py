@@ -341,6 +341,16 @@ class PriceOut(BaseModel):
     updated_by_name: str | None = None
 
 
+class TermsIn(BaseModel):
+    body: str = Field(min_length=1, max_length=8000, description="One paragraph per line. {number}, {issue_date}, {due_date}, "
+                                                                 "{company} and {email} are filled in on each invoice")
+
+
+class TermsOut(TermsIn):
+    updated_at: datetime
+    updated_by_name: str | None = None
+
+
 class PriceIn(BaseModel):
     amount_ngn: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
 
@@ -458,6 +468,7 @@ class InvoiceDetail(InvoiceOut):
     payments: list[PaymentOut]
     bill_to: dict
     notes: str
+    terms: str | None = Field(None, description="The terms printed on it: a copy kept when it was issued, the current terms on a draft")
     geohub_org_id: UUID | None = Field(None, description="The client's organization on Geohub, if linked")
 
 

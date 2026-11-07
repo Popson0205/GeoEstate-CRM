@@ -297,3 +297,24 @@ def test_several_products_on_one_invoice(client, boss, hire, hub):
     done = am.get(f"/invoices/{inv['id']}").json()
     assert done["licence_applied_at"] and done["licence_error"] is None
     assert all(l["licence_applied_at"] for l in done["lines"] if l["licence_product"])
+
+
+def test_terms_print_on_every_invoice_and_issued_ones_keep_theirs(client, boss, hire):
+    am = hire("account_manager")
+    t = am.get("/invoice-terms").json()
+    assert "Validity" in t["body"] and "{due_date}" in t["body"]
+    assert am.put("/invoice-terms", json={"body": "Pay on time."}).status_code == 403          # super admins only
+    a = client_with_contact(am)
+    d = am.post("/invoices", json={"account_id": a["id"], "lines": [{"description": "Training", "unit_price_ngn": 100000}]}).json()
+    assert d["terms"] == t["body"]                                                              # a draft shows today's terms
+    issued = am.post(f"/invoices/{d['id']}/issue", json={}).json()
+    assert issued["terms"] == t["body"]
+    with_terms = am.get(f"/invoices/{d['id']}/pdf")
+    # new terms apply to drafts and invoices issued from now on; the one already sent keeps the terms it went out with
+    r = boss.put("/invoice-terms", json={"body": "  1. Pay by {due_date}.  \n2. Quote {number}.\n"})
+    assert r.status_code == 200 and r.json()["body"] == "1. Pay by {due_date}.\n2. Quote {number}." and r.json()["updated_by_name"]
+    assert am.get(f"/invoices/{d['id']}").json()["terms"] == t["body"]
+    d2 = am.post("/invoices", json={"account_id": a["id"], "lines": [{"description": "Training", "unit_price_ngn": 1}]}).json()
+    assert d2["terms"].startswith("1. Pay by")
+    assert with_terms.status_code == 200 and len(with_terms.content) > len(am.get(f"/invoices/{d2['id']}/pdf").content)
+    assert any(e["action"] == "terms.update" for e in boss.get("/audit").json())
