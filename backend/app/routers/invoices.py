@@ -16,7 +16,7 @@ from ..deps import current_user, require
 from ..errors import Problem
 from ..mailer import send_email
 from ..schemas import (CompanyOut, LicencePlan, Product, EmailInvoiceIn, InvoiceDetail, InvoiceIn, InvoiceOut, InvoicePatch, IssueIn, PaymentIn,
-                       PaymentOut, PriceIn, PriceOut, VoidIn)
+                       PaymentOut, PriceIn, PriceOut, TermsIn, TermsOut, VoidIn)
 
 router = APIRouter(tags=["invoices"])
 
@@ -54,8 +54,9 @@ async def _detail(conn, invoice_id) -> dict:
     cur = await conn.execute("SELECT p.*, u.name AS recorded_by_name FROM payments p LEFT JOIN users u ON u.id = p.recorded_by "
                              "WHERE p.invoice_id = %s ORDER BY p.paid_on, p.created_at", (invoice_id,))
     inv["payments"] = await cur.fetchall()
-    if inv["status"] == "draft":                       # a draft shows the client as it is now
+    if inv["status"] == "draft":                       # a draft shows the client and the terms as they are now
         inv["bill_to"] = await invoicing.bill_to(conn, inv["account_id"])
+        inv["terms"] = await _terms_now(conn)
     return inv
 
 
@@ -159,6 +160,35 @@ async def delete_price(product: Product, plan: LicencePlan, user=Depends(require
     await audit(conn, "price.delete", actor_id=user["id"], target_type="price", target_id=f"{product}/{plan}",
                 plan=invoicing.plan_name(product, plan), before=str(old["amount_ngn"]))
     return Response(status_code=204)
+
+
+# ---------- the terms printed on every invoice ----------
+TERMS_SQL = "SELECT t.body, t.updated_at, u.name AS updated_by_name FROM invoice_terms t LEFT JOIN users u ON u.id = t.updated_by "
+
+
+async def _terms_now(conn) -> str | None:
+    cur = await conn.execute("SELECT body FROM invoice_terms WHERE id = 1")
+    row = await cur.fetchone()
+    return row["body"] if row else None
+
+
+@router.get("/invoice-terms", response_model=TermsOut, summary="The terms and conditions printed on invoices")
+async def get_terms(user=Depends(current_user), conn=Depends(get_conn)):
+    cur = await conn.execute(TERMS_SQL + "WHERE t.id = 1")
+    row = await cur.fetchone()
+    if not row:
+        raise Problem(404, "No terms are set.", code="not_found")
+    return row
+
+
+@router.put("/invoice-terms", response_model=TermsOut, summary="Change the terms printed on invoices from now on (super admins)")
+async def set_terms(body: TermsIn, user=Depends(require("prices.edit")), conn=Depends(get_conn)):
+    text = "\n".join(line.rstrip() for line in body.body.strip().splitlines())
+    await conn.execute("INSERT INTO invoice_terms (id, body, updated_by) VALUES (1, %s, %s) ON CONFLICT (id) DO UPDATE "
+                       "SET body = EXCLUDED.body, updated_by = EXCLUDED.updated_by, updated_at = now()", (text, user["id"]))
+    await audit(conn, "terms.update", actor_id=user["id"], target_type="invoice_terms", target_id="1", length=len(text))
+    cur = await conn.execute(TERMS_SQL + "WHERE t.id = 1")
+    return await cur.fetchone()
 
 
 # ---------- invoices ----------
@@ -265,9 +295,9 @@ async def issue(invoice_id: UUID, body: IssueIn, user=Depends(require("invoices.
         raise Problem(422, "It cannot be due before it is issued.", code="validation", fields={"due_date": ["before issue"]})
     number = await invoicing.next_number(conn, on.year)
     await conn.execute(
-        "UPDATE invoices SET number = %s, status = 'issued', issue_date = %s, due_date = %s, bill_to = %s, issued_at = now(), "
+        "UPDATE invoices SET number = %s, status = 'issued', issue_date = %s, due_date = %s, bill_to = %s, terms = %s, issued_at = now(), "
         "issued_by = %s, updated_at = now() WHERE id = %s",
-        (number, on, due, invoicing.jsonb(await invoicing.bill_to(conn, inv["account_id"])), user["id"], invoice_id))
+        (number, on, due, invoicing.jsonb(await invoicing.bill_to(conn, inv["account_id"])), await _terms_now(conn), user["id"], invoice_id))
     await audit(conn, "invoice.issue", actor_id=user["id"], target_type="invoice", target_id=invoice_id, number=number,
                 account=inv["account_name"], total=str(inv["total_ngn"]))
     return await _detail(conn, invoice_id)
