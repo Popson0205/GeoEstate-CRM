@@ -11,7 +11,7 @@ from . import geohub
 from .config import settings
 
 KOBO = Decimal("0.01")
-PRODUCTS = {"hub": "Geohub", "land": "Land Registry", "check": "LandCheck", "farm": "FarmScan"}
+PRODUCTS = {"hub": "Geohub", "land": "Land Registry", "check": "LandCheck", "farm": "FarmScan", "gis": "PolyGIS"}
 PLAN_WORDS = {"standard": "Standard", "advanced": "Advanced", "custom": "Custom"}
 
 

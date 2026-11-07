@@ -327,7 +327,7 @@ class AuditOut(BaseModel):
 
 # ---------- prices, invoices and payments ----------
 LicencePlan = Literal["standard", "advanced", "custom"]
-Product = Literal["hub", "land", "check", "farm"]
+Product = Literal["hub", "land", "check", "farm", "gis"]
 InvoiceStatus = Literal["draft", "issued", "paid", "void"]
 Money = Field(ge=0, max_digits=14, decimal_places=2)
 

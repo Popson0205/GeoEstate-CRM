@@ -39,7 +39,7 @@ export interface AuditEntry { id: number; at: string; actor_id: string | null; a
   target_type: string | null; target_id: string | null; details: Record<string, unknown> }
 
 export type LicencePlan = "standard" | "advanced" | "custom";
-export type Product = "hub" | "land" | "check" | "farm";
+export type Product = "hub" | "land" | "check" | "farm" | "gis";
 export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
 export interface Price { product: Product; plan: LicencePlan; name: string; amount_ngn: string; updated_at: string; updated_by_name: string | null }
 export interface Company { name: string; address: string; rc: string; tin: string; email: string; phone: string; bank_name: string;

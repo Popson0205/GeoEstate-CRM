@@ -318,3 +318,17 @@ def test_terms_print_on_every_invoice_and_issued_ones_keep_theirs(client, boss, 
     assert d2["terms"].startswith("1. Pay by")
     assert with_terms.status_code == 200 and len(with_terms.content) > len(am.get(f"/invoices/{d2['id']}/pdf").content)
     assert any(e["action"] == "terms.update" for e in boss.get("/audit").json())
+
+
+def test_polygis_is_sold_like_the_other_products(client, boss, hire, hub):
+    am, fin = hire("account_manager"), hire("finance", "Femi Cash")
+    assert boss.put("/prices/gis/standard", json={"amount_ngn": 600000}).json()["name"] == "PolyGIS Standard"
+    org = hub.org("Abuja Survey Ltd")
+    a = client_with_contact(am)
+    am.put(f"/accounts/{a['id']}/geohub", json={"org_id": org["id"]})
+    inv = am.post("/invoices", json={"account_id": a["id"], "lines": [{"description": "PolyGIS Standard licence", "unit_price_ngn": 600000,
+                                                                         "licence_product": "gis", **lic()}]}).json()
+    assert inv["licence_products"] == ["gis"]
+    inv = am.post(f"/invoices/{inv['id']}/issue", json={}).json()
+    paid = fin.post(f"/invoices/{inv['id']}/payments", json={"amount_ngn": inv["total_ngn"], "paid_on": date.today().isoformat()}).json()
+    assert paid["licence_applied_at"] and hub.calls[-1][2]["product"] == "gis"

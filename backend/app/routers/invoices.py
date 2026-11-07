@@ -128,7 +128,7 @@ async def company(user=Depends(current_user)):
 
 
 PRICE_SQL = "SELECT p.*, u.name AS updated_by_name FROM prices p LEFT JOIN users u ON u.id = p.updated_by "
-PRODUCT_ORDER = "array_position(ARRAY['hub','land','check','farm'], p.product), array_position(ARRAY['standard','advanced','custom'], p.plan)"
+PRODUCT_ORDER = "array_position(ARRAY['hub','land','check','farm','gis'], p.product), array_position(ARRAY['standard','advanced','custom'], p.plan)"
 
 
 @router.get("/prices", response_model=list[PriceOut], summary="What a year of each product's plans costs, before VAT")
