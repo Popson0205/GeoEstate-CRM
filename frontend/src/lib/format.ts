@@ -77,8 +77,8 @@ export function invoiceTotals(lines: { quantity: string; unit_price_ngn: string 
 }
 
 export const INVOICE_STATUS: Record<string, string> = { draft: "Draft", issued: "Unpaid", paid: "Paid", void: "Void" };
-export const PRODUCT_NAME: Record<string, string> = { hub: "Geohub", land: "Land Registry", check: "LandCheck", farm: "FarmScan" };
-export const PRODUCTS = ["hub", "land", "check", "farm"] as const;
+export const PRODUCT_NAME: Record<string, string> = { hub: "Geohub", land: "Land Registry", check: "LandCheck", farm: "FarmScan", gis: "PolyGIS" };
+export const PRODUCTS = ["hub", "land", "check", "farm", "gis"] as const;
 const PLAN_WORD: Record<string, string> = { standard: "Standard", advanced: "Advanced", custom: "Custom" };
 /** "Organization Standard" for Geohub, "Land Registry Standard" for the others, as the server names them. */
 export const planName = (product: string, plan: string) =>
