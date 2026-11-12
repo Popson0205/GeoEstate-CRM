@@ -7,12 +7,16 @@ interface AuthState { user: User | null; ready: boolean; adopt(s: Session): void
 const Ctx = createContext<AuthState>({ user: null, ready: false, adopt: () => {}, signOut: async () => {}, can: () => false });
 export const useAuth = () => useContext(Ctx);
 
+/** The shared GeoEstate launch screen (public/geoestate-splash.js): say what is happening while the app starts, and when it is ready. */
+const splash = (window as unknown as { GeoEstateSplash?: { step: (t: string, p?: number) => void; done: () => void } }).GeoEstateSplash;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  useEffect(() => { if (ready) splash?.done(); }, [ready]);
   useEffect(() => {
     (async () => {
-      if (tokens.has()) { try { setUser(await api.me()); } catch { tokens.clear(); } }
+      if (tokens.has()) { splash?.step("Checking your sign-in", 45); try { setUser(await api.me()); } catch { tokens.clear(); } }
       setReady(true);
     })();
     const out = () => setUser(null);
